@@ -1,0 +1,192 @@
+2025-11-03 14:33:41,347 - __main__ - INFO - ==================================================
+2025-11-03 14:33:41,347 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 14:33:41,347 - __main__ - INFO - Run time: 2025-11-03 14:33:41
+2025-11-03 14:33:41,347 - __main__ - INFO - ==================================================
+2025-11-03 14:33:41,347 - __main__ - ERROR - Missing required environment variables: ['THREADS_ACCESS_TOKEN', 'THREADS_USER_ID']
+2025-11-03 14:33:41,347 - __main__ - ERROR - Please set them in your .env file
+2025-11-03 14:38:26,284 - __main__ - INFO - ==================================================
+2025-11-03 14:38:26,285 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 14:38:26,285 - __main__ - INFO - Run time: 2025-11-03 14:38:26
+2025-11-03 14:38:26,285 - __main__ - INFO - ==================================================
+2025-11-03 14:38:26,285 - __main__ - ERROR - Missing required environment variables: ['THREADS_ACCESS_TOKEN', 'THREADS_USER_ID']
+2025-11-03 14:38:26,285 - __main__ - ERROR - Please set them in your .env file
+2025-11-03 21:46:21,361 - __main__ - INFO - ==================================================
+2025-11-03 21:46:21,361 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 21:46:21,361 - __main__ - INFO - Run time: 2025-11-03 21:46:21
+2025-11-03 21:46:21,361 - __main__ - INFO - ==================================================
+2025-11-03 21:46:21,361 - __main__ - ERROR - Missing required environment variables: ['THREADS_ACCESS_TOKEN', 'THREADS_USER_ID']
+2025-11-03 21:46:21,361 - __main__ - ERROR - Please set them in your .env file
+2025-11-03 21:46:48,066 - __main__ - INFO - ==================================================
+2025-11-03 21:46:48,066 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 21:46:48,066 - __main__ - INFO - Run time: 2025-11-03 21:46:48
+2025-11-03 21:46:48,066 - __main__ - INFO - ==================================================
+2025-11-03 21:46:48,066 - __main__ - ERROR - Missing required environment variables: ['THREADS_ACCESS_TOKEN', 'THREADS_USER_ID']
+2025-11-03 21:46:48,066 - __main__ - ERROR - Please set them in your .env file
+2025-11-03 21:47:09,334 - __main__ - INFO - ==================================================
+2025-11-03 21:47:09,334 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 21:47:09,334 - __main__ - INFO - Run time: 2025-11-03 21:47:09
+2025-11-03 21:47:09,334 - __main__ - INFO - ==================================================
+2025-11-03 21:47:09,334 - __main__ - ERROR - Missing required environment variables: ['THREADS_ACCESS_TOKEN', 'THREADS_USER_ID']
+2025-11-03 21:47:09,334 - __main__ - ERROR - Please set them in your .env file
+2025-11-03 21:47:24,111 - __main__ - INFO - ==================================================
+2025-11-03 21:47:24,111 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 21:47:24,111 - __main__ - INFO - Run time: 2025-11-03 21:47:24
+2025-11-03 21:47:24,111 - __main__ - INFO - ==================================================
+2025-11-03 21:47:24,111 - __main__ - ERROR - Missing required environment variables: ['THREADS_ACCESS_TOKEN', 'THREADS_USER_ID']
+2025-11-03 21:47:24,111 - __main__ - ERROR - Please set them in your .env file
+2025-11-03 21:52:01,227 - __main__ - INFO - ==================================================
+2025-11-03 21:52:01,227 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 21:52:01,227 - __main__ - INFO - Run time: 2025-11-03 21:52:01
+2025-11-03 21:52:01,227 - __main__ - INFO - ==================================================
+2025-11-03 21:52:14,962 - __main__ - INFO - ==================================================
+2025-11-03 21:52:14,962 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 21:52:14,962 - __main__ - INFO - Run time: 2025-11-03 21:52:14
+2025-11-03 21:52:14,962 - __main__ - INFO - ==================================================
+2025-11-03 21:52:14,962 - __main__ - INFO - ==================================================
+2025-11-03 21:52:14,962 - __main__ - INFO - Successfully completed deals posting!
+2025-11-03 21:52:14,962 - __main__ - INFO - ==================================================
+2025-11-03 21:54:23,577 - __main__ - INFO - ==================================================
+2025-11-03 21:54:23,577 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 21:54:23,577 - __main__ - INFO - Run time: 2025-11-03 21:54:23
+2025-11-03 21:54:23,577 - __main__ - INFO - ==================================================
+2025-11-03 21:54:23,577 - __main__ - INFO - ==================================================
+2025-11-03 21:54:23,577 - __main__ - INFO - Successfully completed deals posting!
+2025-11-03 21:54:23,577 - __main__ - INFO - ==================================================
+2025-11-03 21:54:45,871 - __main__ - INFO - ==================================================
+2025-11-03 21:54:45,871 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-03 21:54:45,871 - __main__ - INFO - Run time: 2025-11-03 21:54:45
+2025-11-03 21:54:45,871 - __main__ - INFO - ==================================================
+2025-11-03 21:54:45,871 - __main__ - INFO - ==================================================
+2025-11-03 21:54:45,871 - __main__ - INFO - Successfully completed deals posting!
+2025-11-03 21:54:45,871 - __main__ - INFO - ==================================================
+2025-11-04 21:38:30,249 - __main__ - INFO - ==================================================
+2025-11-04 21:38:30,250 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-04 21:38:30,250 - __main__ - INFO - Run time: 2025-11-04 21:38:30
+2025-11-04 21:38:30,250 - __main__ - INFO - ==================================================
+2025-11-04 21:38:30,327 - __main__ - ERROR - Error fetching from Slickdeals: Cannot connect to host slickdeals.net:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1002)')]
+2025-11-04 21:38:30,327 - __main__ - INFO - Fetched 0 deals from Slickdeals
+2025-11-04 21:38:30,328 - __main__ - INFO - Slickdeals fetch test completed successfully!
+2025-11-04 21:40:51,275 - __main__ - INFO - ==================================================
+2025-11-04 21:40:51,275 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-04 21:40:51,275 - __main__ - INFO - Run time: 2025-11-04 21:40:51
+2025-11-04 21:40:51,275 - __main__ - INFO - ==================================================
+2025-11-04 21:40:51,344 - __main__ - ERROR - Error fetching from Slickdeals: Cannot connect to host slickdeals.net:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1002)')]
+2025-11-04 21:40:51,344 - __main__ - INFO - Fetched 0 deals from Slickdeals
+2025-11-04 21:40:51,345 - __main__ - INFO - Slickdeals fetch test completed successfully!
+2025-11-04 21:42:22,891 - __main__ - INFO - ==================================================
+2025-11-04 21:42:22,892 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-04 21:42:22,892 - __main__ - INFO - Run time: 2025-11-04 21:42:22
+2025-11-04 21:42:22,892 - __main__ - INFO - ==================================================
+2025-11-04 21:42:22,936 - __main__ - ERROR - Error fetching from Reddit: Cannot connect to host www.reddit.com:443 ssl:True [SSLCertVerificationError: (1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1002)')]
+2025-11-04 21:42:22,936 - __main__ - INFO - Fetched 0 deals from Reddit
+2025-11-04 21:42:22,937 - __main__ - INFO - Slickdeals fetch test completed successfully!
+2025-11-04 21:46:44,265 - __main__ - INFO - ==================================================
+2025-11-04 21:46:44,266 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-04 21:46:44,266 - __main__ - INFO - Run time: 2025-11-04 21:46:44
+2025-11-04 21:46:44,266 - __main__ - INFO - ==================================================
+2025-11-04 21:46:44,820 - __main__ - INFO - Fetched 10 deals from Reddit
+2025-11-04 21:46:44,822 - __main__ - INFO - Slickdeals fetch test completed successfully!
+2025-11-04 21:50:30,183 - __main__ - INFO - ==================================================
+2025-11-04 21:50:30,183 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-04 21:50:30,183 - __main__ - INFO - Run time: 2025-11-04 21:50:30
+2025-11-04 21:50:30,183 - __main__ - INFO - ==================================================
+2025-11-04 21:50:30,661 - __main__ - INFO - Fetched 0 deals from Slickdeals
+2025-11-04 21:50:30,661 - __main__ - INFO - Slickdeals fetch test completed successfully!
+2025-11-04 21:57:40,166 - __main__ - INFO - ==================================================
+2025-11-04 21:57:40,166 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-04 21:57:40,166 - __main__ - INFO - Run time: 2025-11-04 21:57:40
+2025-11-04 21:57:40,166 - __main__ - INFO - ==================================================
+2025-11-04 21:57:40,167 - __main__ - ERROR - Unexpected error: ssl should be SSLContext, bool, Fingerprint or None, got '/Users/woobinchung/Desktop/Source/ThreadsPostDeals/venv/lib/python3.11/site-packages/certifi/cacert.pem' instead.
+Traceback (most recent call last):
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/main.py", line 571, in main
+    asyncio.run(test_redditDeals())
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/base_events.py", line 653, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/main.py", line 565, in test_redditDeals
+    async with DealsFetcher() as fetcher:
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/main.py", line 68, in __aenter__
+    self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl_context=certifi.where()))
+                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/venv/lib/python3.11/site-packages/aiohttp/connector.py", line 786, in __init__
+    self._ssl = _merge_ssl_params(ssl, verify_ssl, ssl_context, fingerprint)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/venv/lib/python3.11/site-packages/aiohttp/client_reqrep.py", line 203, in _merge_ssl_params
+    raise TypeError(
+TypeError: ssl should be SSLContext, bool, Fingerprint or None, got '/Users/woobinchung/Desktop/Source/ThreadsPostDeals/venv/lib/python3.11/site-packages/certifi/cacert.pem' instead.
+2025-11-04 21:58:22,403 - __main__ - INFO - ==================================================
+2025-11-04 21:58:22,403 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-04 21:58:22,404 - __main__ - INFO - Run time: 2025-11-04 21:58:22
+2025-11-04 21:58:22,404 - __main__ - INFO - ==================================================
+2025-11-04 21:58:22,404 - __main__ - ERROR - Unexpected error: ssl should be SSLContext, bool, Fingerprint or None, got '/Users/woobinchung/Desktop/Source/ThreadsPostDeals/venv/lib/python3.11/site-packages/certifi/cacert.pem' instead.
+Traceback (most recent call last):
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/main.py", line 571, in main
+    asyncio.run(test_redditDeals())
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/runners.py", line 190, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/asyncio/base_events.py", line 653, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/main.py", line 565, in test_redditDeals
+    async with DealsFetcher() as fetcher:
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/main.py", line 68, in __aenter__
+    self.session = aiohttp.ClientSession(headers=self.headers, connector=aiohttp.TCPConnector(ssl=certifi.where()))
+                                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/venv/lib/python3.11/site-packages/aiohttp/connector.py", line 786, in __init__
+    self._ssl = _merge_ssl_params(ssl, verify_ssl, ssl_context, fingerprint)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/woobinchung/Desktop/Source/ThreadsPostDeals/venv/lib/python3.11/site-packages/aiohttp/client_reqrep.py", line 203, in _merge_ssl_params
+    raise TypeError(
+TypeError: ssl should be SSLContext, bool, Fingerprint or None, got '/Users/woobinchung/Desktop/Source/ThreadsPostDeals/venv/lib/python3.11/site-packages/certifi/cacert.pem' instead.
+2025-11-04 21:59:54,399 - __main__ - INFO - ==================================================
+2025-11-04 21:59:54,399 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-04 21:59:54,399 - __main__ - INFO - Run time: 2025-11-04 21:59:54
+2025-11-04 21:59:54,399 - __main__ - INFO - ==================================================
+2025-11-04 21:59:54,794 - __main__ - INFO - Fetched 10 deals from Reddit
+2025-11-04 21:59:54,797 - __main__ - INFO - Slickdeals fetch test completed successfully!
+2025-11-04 22:02:10,543 - __main__ - INFO - ==================================================
+2025-11-04 22:02:10,544 - __main__ - INFO - Starting Deals to Threads poster...
+2025-11-04 22:02:10,544 - __main__ - INFO - Run time: 2025-11-04 22:02:10
+2025-11-04 22:02:10,544 - __main__ - INFO - ==================================================
+2025-11-04 22:02:10,544 - __main__ - INFO - Starting deals fetch and post process...
+2025-11-04 22:02:10,815 - __main__ - ERROR - Error checking rate limits: 400 Client Error: Bad Request for url: https://graph.threads.net/v1.0/815845964748706/threads_publishing_limit?fields=quota_usage%2Cconfig&access_token=TH%7C815845964748706%7CCwmUS5SNYY2LyC6mOOLYrF5NzMw
+2025-11-04 22:02:10,816 - __main__ - INFO - Fetching deals from all sources...
+2025-11-04 22:02:11,451 - __main__ - INFO - Fetched 10 deals from Reddit
+2025-11-04 22:02:11,451 - __main__ - INFO - Fetched 10 unique deals
+2025-11-04 22:02:11,452 - __main__ - INFO - Post content (500 chars):
+🔥 TODAY'S HOTTEST DEALS 🔥
+📅 November 04, 2025
+──────────────────────────────
+
+🥇 Prime Day sub changes!
+💰 See Deal
+🏪 Reddit
+🔗 https://www.reddit.com/r/deals/comments/1luxqa3/prime_day_sub_changes/
+
+🥈 Need Prime for Prime Day?
+💰 See Deal
+🏪 I
+🔗 https://i.redd.it/7pp5stqqcpbf1.png
+
+🥉 Apple Watch SE 2nd Gen GPS 40mm Smartwatch - $211 (15% off)
+💰 $211
+🏪 Amazon
+🔗 https://amazon.rdeals.org/B0DGJ736JM-BX923
+
+4️⃣ INIU USB C Charger Block, 100W 3-Port PD Fast Charging, Compact Foldable MacBook Charger w...
+2025-11-04 22:02:11,610 - __main__ - ERROR - Error creating media container: 400 Client Error: Bad Request for url: https://graph.threads.net/v1.0/815845964748706/threads?media_type=TEXT&text=%F0%9F%94%A5+TODAY%27S+HOTTEST+DEALS+%F0%9F%94%A5%0A%F0%9F%93%85+November+04%2C+2025%0A%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%E2%94%80%0A%0A%F0%9F%A5%87+Prime+Day+sub+changes%21%0A%F0%9F%92%B0+See+Deal%0A%F0%9F%8F%AA+Reddit%0A%F0%9F%94%97+https%3A%2F%2Fwww.reddit.com%2Fr%2Fdeals%2Fcomments%2F1luxqa3%2Fprime_day_sub_changes%2F%0A%0A%F0%9F%A5%88+Need+Prime+for+Prime+Day%3F%0A%F0%9F%92%B0+See+Deal%0A%F0%9F%8F%AA+I%0A%F0%9F%94%97+https%3A%2F%2Fi.redd.it%2F7pp5stqqcpbf1.png%0A%0A%F0%9F%A5%89+Apple+Watch+SE+2nd+Gen+GPS+40mm+Smartwatch+-+%24211+%2815%25+off%29%0A%F0%9F%92%B0+%24211%0A%F0%9F%8F%AA+Amazon%0A%F0%9F%94%97+https%3A%2F%2Famazon.rdeals.org%2FB0DGJ736JM-BX923%0A%0A4%EF%B8%8F%E2%83%A3+INIU+USB+C+Charger+Block%2C+100W+3-Port+PD+Fast+Charging%2C+Compact+Foldable+MacBook+Charger+w...&access_token=TH%7C815845964748706%7CCwmUS5SNYY2LyC6mOOLYrF5NzMw
+2025-11-04 22:02:11,610 - __main__ - ERROR - Response: {"error":{"message":"Unsupported post request. Object with ID '815845964748706' does not exist, cannot be loaded due to missing permissions, or does not support this operation","type":"THApiException","code":100,"error_subcode":33,"fbtrace_id":"AQHNvCxaKhF4IoI29tXwQ0s"}}
+2025-11-04 22:02:11,611 - __main__ - ERROR - Failed to post deals to Threads
+2025-11-04 22:02:11,612 - __main__ - INFO - ==================================================
+2025-11-04 22:02:11,613 - __main__ - INFO - Successfully completed deals posting!
+2025-11-04 22:02:11,613 - __main__ - INFO - ==================================================
