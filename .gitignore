@@ -38,3 +38,7 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+
+# Claude
+Claude.md
+CLEANUP_SUMMARY.md
