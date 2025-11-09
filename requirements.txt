@@ -1,11 +1,7 @@
 # Core dependencies
-aiohttp==3.9.1        # For async HTTP requests to fetch data concurrently
-beautifulsoup4==4.12.3  # For parsing HTML when scraping websites
+aiohttp==3.9.1        # For async HTTP requests to fetch deals from Reddit API
 requests==2.31.0      # For synchronous HTTP requests to Threads API
 python-dotenv==1.0.1  # For loading environment variables from .env file
-
-# Parser dependency
-lxml==5.1.0          # Fast XML/HTML parser for BeautifulSoup
 
 # These are automatically installed with the above packages:
 # - certifi: SSL certificates

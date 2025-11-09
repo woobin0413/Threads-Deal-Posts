@@ -8,32 +8,66 @@ import os
 import asyncio
 import json
 import logging
+import re
+import time
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-import re
-import time
-import certifi
+from enum import Enum
+
 import aiohttp
-from bs4 import BeautifulSoup
 import requests
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
+# ============= CONFIGURATION =============
+class Config:
+    """Application configuration constants"""
+    # API Configuration
+    THREADS_API_BASE = "https://graph.threads.net/v1.0"
+
+    # Deal Configuration
+    TOP_DEALS_COUNT = 5
+    MAX_TITLE_LENGTH = 100
+    MAX_POSTED_DEALS_HISTORY = 100
+    DUPLICATE_TITLE_KEY_LENGTH = 50
+
+    # Post Configuration
+    MAX_POST_LENGTH = 500
+    SEPARATOR_LINE = "─" * 30
+
+    # File paths
+    POSTED_DEALS_FILE = 'posted_deals.json'
+    LOG_FILE = 'deals_poster.log'
+
+    # HTTP Configuration
+    USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    REDDIT_USER_AGENT = 'DealsBot/1.0'
+    CONTAINER_PUBLISH_DELAY = 1  # seconds
+
+    # Default values
+    DEFAULT_PRICE = "See Deal"
+    DEFAULT_STORE = "Various"
+
+    # Emoji mapping
+    RANK_EMOJIS = {1: "🥇", 2: "🥈", 3: "🥉", 4: "4️⃣", 5: "5️⃣"}
+
+
+# ============= LOGGING SETUP =============
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('deals_poster.log'),
+        logging.FileHandler(Config.LOG_FILE),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
 
+# ============= DATA MODELS =============
 @dataclass
 class Deal:
     """Represents a single deal"""
@@ -45,474 +79,399 @@ class Deal:
     link: str
     image_url: Optional[str]
     description: Optional[str]
-    score: int = 0  # Deal quality score for sorting
+    score: int = 0
+
+    def get_unique_id(self) -> str:
+        """Generate unique ID for duplicate detection"""
+        return f"{self.store}_{self.title[:50]}"
+
+    def get_normalized_title(self) -> str:
+        """Get normalized title for duplicate detection"""
+        return re.sub(r'[^a-zA-Z0-9]', '', self.title.lower())[:Config.DUPLICATE_TITLE_KEY_LENGTH]
 
 
+# ============= UTILITY FUNCTIONS =============
+class TextExtractor:
+    """Utility class for extracting information from text"""
+
+    @staticmethod
+    def extract_price(text: str) -> str:
+        """Extract price from text using regex"""
+        price_match = re.search(r'\$[\d,]+\.?\d*', text)
+        return price_match.group() if price_match else Config.DEFAULT_PRICE
+
+    @staticmethod
+    def extract_store_from_url(url: str) -> str:
+        """Extract store name from URL domain"""
+        if not url:
+            return Config.DEFAULT_STORE
+        domain_match = re.search(r'https?://(?:www\.)?([^/]+)', url)
+        if domain_match:
+            return domain_match.group(1).split('.')[0].capitalize()
+        return Config.DEFAULT_STORE
+
+    @staticmethod
+    def extract_score_from_text(text: str) -> int:
+        """Extract numeric score from text"""
+        try:
+            match = re.search(r'\d+', text)
+            return int(match.group()) if match else 0
+        except (AttributeError, ValueError):
+            return 0
+
+
+# ============= DEALS FETCHER =============
 class DealsFetcher:
-    """
-    Fetches deals from various sources using both free APIs and web scraping.
-
-    aiohttp is used for asynchronous HTTP requests, allowing multiple sources
-    to be fetched concurrently, which is much faster than sequential requests.
-    This is especially important when aggregating data from multiple sources.
-    """
+    """Fetches deals from various sources using async HTTP requests"""
 
     def __init__(self):
-        self.session = None
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        self.session: Optional[aiohttp.ClientSession] = None
+        self.headers = {'User-Agent': Config.USER_AGENT}
 
     async def __aenter__(self):
-        """Create an aiohttp session for async HTTP requests"""
-        self.session = aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False))
+        """Create aiohttp session for async HTTP requests"""
+        self.session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(ssl=False)
+        )
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Close the aiohttp session"""
+        """Close aiohttp session"""
         if self.session:
             await self.session.close()
 
-    async def fetch_cheapshark_deals(self) -> List[Deal]:
-        """
-        Fetch gaming deals from CheapShark API - FREE, NO AUTH REQUIRED!
-        CheapShark provides PC game deals from Steam, GOG, Epic Games, etc.
-        API Documentation: https://apidocs.cheapshark.com/
-        """
-        deals = []
+    async def _fetch_json(self, url: str, headers: Optional[Dict] = None) -> Optional[Dict]:
+        """Generic method to fetch JSON from URL"""
         try:
-            # Get top deals sorted by deal rating
-            url = "https://www.cheapshark.com/api/1.0/deals"
-            params = {
-                'pageSize': 10,
-                'sortBy': 'DealRating',  # Best deals first
-                'onSale': 1
-            }
-
-            async with self.session.get(url, params=params) as response:
+            async with self.session.get(url, headers=headers or self.headers) as response:
                 if response.status == 200:
-                    data = await response.json()
-
-                    for item in data[:10]:  # Top 10 deals
-                        try:
-                            # Calculate discount percentage
-                            normal_price = float(item.get('normalPrice', 0))
-                            sale_price = float(item.get('salePrice', 0))
-                            discount = 0
-                            if normal_price > 0:
-                                discount = int((1 - sale_price/normal_price) * 100)
-
-                            deal = Deal(
-                                title=f"{item.get('title', 'Unknown Game')} (PC Game)",
-                                price=f"${item.get('salePrice', 'N/A')}",
-                                original_price=f"${item.get('normalPrice', 'N/A')}",
-                                discount_percentage=f"{discount}%" if discount > 0 else None,
-                                store=item.get('storeName', 'PC Store'),
-                                link=f"https://www.cheapshark.com/redirect?dealID={item.get('dealID', '')}",
-                                image_url=item.get('thumb'),
-                                description=f"Metacritic: {item.get('metacriticScore', 'N/A')}/100",
-                                score=int(float(item.get('dealRating', 0)) * 10)  # Convert to score
-                            )
-                            deals.append(deal)
-                        except Exception as e:
-                            logger.error(f"Error parsing CheapShark item: {e}")
-                            continue
-
+                    return await response.json()
         except Exception as e:
-            logger.error(f"Error fetching from CheapShark API: {e}")
-
-        logger.info(f"Fetched {len(deals)} deals from CheapShark")
-        return deals
-
-    async def fetch_dummy_api_deals(self) -> List[Deal]:
-        """
-        Fetch sample product deals from DummyJSON API - FREE, NO AUTH!
-        This is a fake data API but useful for testing.
-        API Documentation: https://dummyjson.com/docs/products
-        """
-        deals = []
-        try:
-            url = "https://dummyjson.com/products"
-            params = {
-                'limit': 10,
-                'sortBy': 'discountPercentage',
-                'order': 'desc'
-            }
-
-            async with self.session.get(url, params=params) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    products = data.get('products', [])
-
-                    for item in products[:10]:
-                        try:
-                            # Calculate sale price
-                            price = float(item.get('price', 0))
-                            discount = float(item.get('discountPercentage', 0))
-                            sale_price = price * (1 - discount/100)
-
-                            deal = Deal(
-                                title=item.get('title', 'Unknown Product'),
-                                price=f"${sale_price:.2f}",
-                                original_price=f"${price:.2f}",
-                                discount_percentage=f"{discount:.0f}%",
-                                store=item.get('brand', 'Online Store'),
-                                link="https://example.com",  # Dummy link
-                                image_url=item.get('thumbnail'),
-                                description=item.get('description', '')[:100],
-                                score=int(item.get('rating', 0) * 20)  # Convert rating to score
-                            )
-                            deals.append(deal)
-                        except Exception as e:
-                            logger.error(f"Error parsing DummyJSON item: {e}")
-                            continue
-
-        except Exception as e:
-            logger.error(f"Error fetching from DummyJSON API: {e}")
-
-        logger.info(f"Fetched {len(deals)} sample deals from DummyJSON")
-        return deals
-
-    async def fetch_slickdeals(self) -> List[Deal]:
-        """
-        Fetch deals from Slickdeals using web scraping.
-        BeautifulSoup is used to parse HTML content from websites.
-        """
-        deals = []
-        try:
-            url = "https://slickdeals.net/deals/"
-            async with self.session.get(url) as response:
-                if response.status == 200:
-                    html = await response.text()
-                    soup = BeautifulSoup(html, 'html.parser')
-                    #print(soup.prettify()[:1000])  # Print first 1000 chars of prettified HTML for debugging
-                    # Parse Slickdeals frontpage deals
-                    deal_elements = soup.find_all('div', class_='fpItem', limit=10)
-
-                    for elem in deal_elements:
-                        try:
-                            title_elem = elem.find('a', class_='itemTitle')
-                            if not title_elem:
-                                continue
-
-                            title = title_elem.text.strip()
-                            link = title_elem.get('href', '')
-                            if not link.startswith('http'):
-                                link = f"https://slickdeals.net{link}"
-
-                            price_elem = elem.find('div', class_='itemPrice')
-                            price = price_elem.text.strip() if price_elem else "See Deal"
-
-                            store_elem = elem.find('span', class_='itemStore')
-                            store = store_elem.text.strip() if store_elem else "Various"
-
-                            # Try to extract deal score/rating
-                            score_elem = elem.find('div', class_='itemRating')
-                            score = 0
-                            if score_elem:
-                                try:
-                                    score = int(re.search(r'\d+', score_elem.text).group())
-                                except:
-                                    pass
-
-                            deal = Deal(
-                                title=title[:100],  # Limit title length
-                                price=price,
-                                original_price=None,
-                                discount_percentage=None,
-                                store=store,
-                                link=link,
-                                image_url=None,
-                                description=None,
-                                score=score
-                            )
-                            deals.append(deal)
-                        except Exception as e:
-                            logger.error(f"Error parsing Slickdeals item: {e}")
-                            continue
-
-        except Exception as e:
-            logger.error(f"Error fetching from Slickdeals: {e}")
-
-        logger.info(f"Fetched {len(deals)} deals from Slickdeals")
-        return deals
+            logger.error(f"Error fetching JSON from {url}: {e}")
+        return None
 
     async def fetch_reddit_deals(self) -> List[Deal]:
-        """
-        Fetch deals from Reddit r/deals using their JSON API.
-        Reddit provides a JSON endpoint that doesn't require authentication.
-        """
+        """Fetch deals from Reddit r/deals using JSON API"""
         deals = []
-        try:
-            url = "https://www.reddit.com/r/deals/hot.json"
-            headers = {**self.headers, 'User-Agent': 'DealsBot/1.0'}
+        url = "https://www.reddit.com/r/deals/hot.json"
+        headers = {**self.headers, 'User-Agent': Config.REDDIT_USER_AGENT}
 
-            async with self.session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    posts = data.get('data', {}).get('children', [])
+        data = await self._fetch_json(url, headers)
+        if not data:
+            return deals
 
-                    for post in posts[:10]:
-                        post_data = post.get('data', {})
-                        title = post_data.get('title', '')
-                        url = post_data.get('url', '')
+        posts = data.get('data', {}).get('children', [])
 
-                        # Extract price from title if present
-                        price_match = re.search(r'\$[\d,]+\.?\d*', title)
-                        price = price_match.group() if price_match else "See Deal"
+        for idx, post in enumerate(posts[:10], 1):
+            post_data = post.get('data', {})
 
-                        # Extract store from domain
-                        store = "Various"
-                        if url:
-                            domain_match = re.search(r'https?://(?:www\.)?([^/]+)', url)
-                            if domain_match:
-                                store = domain_match.group(1).split('.')[0].capitalize()
+            # Skip promoted posts
+            if post_data.get('promoted') or post_data.get('is_sponsored'):
+                logger.debug(f"Skipping promoted post: {post_data.get('title', '')}")
+                continue
 
-                        deal = Deal(
-                            title=title[:100],
-                            price=price,
-                            original_price=None,
-                            discount_percentage=None,
-                            store=store,
-                            link=url,
-                            image_url=None,
-                            description=None,
-                            score=post_data.get('score', 0)
-                        )
-                        deals.append(deal)
+            title = post_data.get('title', '')
+            url = post_data.get('url', '')
 
-        except Exception as e:
-            logger.error(f"Error fetching from Reddit: {e}")
+            # Extract image URL from Reddit post
+            image_url = None
+            # Try preview images first (high quality)
+            preview = post_data.get('preview', {})
+            if preview and 'images' in preview and len(preview['images']) > 0:
+                image_url = preview['images'][0].get('source', {}).get('url', '')
+                # Reddit escapes HTML entities in URLs, unescape them
+                if image_url:
+                    image_url = image_url.replace('&amp;', '&')
+            # Fallback to thumbnail if no preview
+            elif post_data.get('thumbnail') and post_data['thumbnail'].startswith('http'):
+                image_url = post_data['thumbnail']
+
+            deal = Deal(
+                title=title[:Config.MAX_TITLE_LENGTH],
+                price=TextExtractor.extract_price(title),
+                original_price=None,
+                discount_percentage=None,
+                store=TextExtractor.extract_store_from_url(url),
+                link=url,
+                image_url=image_url,
+                description=None,
+                score=post_data.get('score', 0)
+            )
+
+            # Debug output
+            logger.debug(f"Deal #{idx}: {deal.title} - ${deal.price} ({deal.score})")
+            deals.append(deal)
 
         logger.info(f"Fetched {len(deals)} deals from Reddit")
         return deals
 
-    async def fetch_all_deals(self) -> List[Deal]:
-        """Fetch deals from all sources - both APIs and web scraping"""
-        logger.info("Fetching deals from all sources...")
-
-        # Fetch from all sources concurrently
-        # Mix of free APIs and web scraping for diversity
-        tasks = [
-           # self.fetch_cheapshark_deals(),  # Free gaming deals API
-           # self.fetch_slickdeals(),        # Web scraping popular deals
-            self.fetch_reddit_deals(),       # Web scraping Reddit deals
-        ]
-
-        # Only add dummy API for testing if enabled
-        if os.getenv('USE_DUMMY_DATA', 'false').lower() == 'true':
-            tasks.append(self.fetch_dummy_api_deals())
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        all_deals = []
-        for result in results:
-            if isinstance(result, list):
-                all_deals.extend(result)
-            elif isinstance(result, Exception):
-                logger.error(f"Error in fetching task: {result}")
-
-        # Sort by score and remove duplicates
+    def _remove_duplicates(self, deals: List[Deal]) -> List[Deal]:
+        """Remove duplicate deals based on normalized titles"""
         seen_titles = set()
         unique_deals = []
-        for deal in sorted(all_deals, key=lambda x: x.score, reverse=True):
-            # Simple duplicate check based on title similarity
-            title_key = re.sub(r'[^a-zA-Z0-9]', '', deal.title.lower())[:50]
+
+        for deal in sorted(deals, key=lambda x: x.score, reverse=True):
+            title_key = deal.get_normalized_title()
             if title_key not in seen_titles:
                 seen_titles.add(title_key)
                 unique_deals.append(deal)
+
+        return unique_deals
+
+    async def fetch_all_deals(self) -> List[Deal]:
+        """Fetch deals from Reddit"""
+        logger.info("Fetching deals from Reddit...")
+
+        deals = await self.fetch_reddit_deals()
+        unique_deals = self._remove_duplicates(deals)
 
         logger.info(f"Fetched {len(unique_deals)} unique deals")
         return unique_deals
 
 
+# ============= THREADS API =============
 class ThreadsAPI:
     """Handles posting to Threads using the official API"""
 
     def __init__(self):
         self.access_token = os.getenv('THREADS_ACCESS_TOKEN')
         self.user_id = os.getenv('THREADS_USER_ID')
-        self.api_base = "https://graph.threads.net/v1.0"
+        self.api_base = Config.THREADS_API_BASE
 
         if not self.access_token or not self.user_id:
-            raise ValueError("THREADS_ACCESS_TOKEN and THREADS_USER_ID must be set in .env file")
+            raise ValueError("THREADS_ACCESS_TOKEN and THREADS_USER_ID must be set")
 
-    def create_media_container(self, text: str, media_url: Optional[str] = None) -> Optional[str]:
-        """Create a media container for a Threads post"""
+    def _make_request(self, method: str, endpoint: str, params: Dict) -> Optional[Dict]:
+        """Generic method to make API requests with error handling"""
         try:
-            endpoint = f"{self.api_base}/{self.user_id}/threads"
+            url = f"{self.api_base}/{endpoint}"
+            request_func = requests.post if method == 'POST' else requests.get
 
-            params = {
-                'media_type': 'TEXT',
-                'text': text,
-                'access_token': self.access_token
-            }
-
-            if media_url:
-                params['media_type'] = 'IMAGE'
-                params['image_url'] = media_url
-
-            response = requests.post(endpoint, params=params)
+            response = request_func(url, params=params)
             response.raise_for_status()
-
-            data = response.json()
-            container_id = data.get('id')
-
-            if container_id:
-                logger.info(f"Created media container: {container_id}")
-                return container_id
-            else:
-                logger.error(f"No container ID in response: {data}")
-                return None
-
+            return response.json()
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error creating media container: {e}")
-            if hasattr(e.response, 'text'):
+            logger.error(f"API request error ({method} {endpoint}): {e}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
                 logger.error(f"Response: {e.response.text}")
             return None
 
+    def create_media_container(self, text: str = "", media_url: Optional[str] = None, is_carousel_item: bool = False) -> Optional[str]:
+        """Create a media container for a Threads post"""
+        params = {
+            'media_type': 'IMAGE' if media_url else 'TEXT',
+            'access_token': self.access_token
+        }
+
+        # Only add text for carousel container, not individual items
+        if text and not is_carousel_item:
+            params['text'] = text
+
+        if media_url:
+            params['image_url'] = media_url
+
+        data = self._make_request('POST', f"{self.user_id}/threads", params)
+
+        if data and 'id' in data:
+            container_id = data['id']
+            logger.info(f"Created media container: {container_id}")
+            return container_id
+
+        logger.error(f"No container ID in response: {data}")
+        return None
+
+    def create_carousel_container(self, text: str, media_urls: List[str]) -> Optional[str]:
+        """Create a carousel container with multiple images"""
+        if not media_urls or len(media_urls) == 0:
+            logger.error("No media URLs provided for carousel")
+            return None
+
+        if len(media_urls) > 20:
+            logger.warning(f"Carousel limited to 20 images, truncating from {len(media_urls)}")
+            media_urls = media_urls[:20]
+
+        # Step 1: Create individual media containers for each image
+        media_container_ids = []
+        for idx, media_url in enumerate(media_urls, 1):
+            if not media_url:
+                logger.warning(f"Skipping empty media URL at index {idx}")
+                continue
+
+            logger.info(f"Creating media container {idx}/{len(media_urls)}: {media_url}")
+            container_id = self.create_media_container(media_url=media_url, is_carousel_item=True)
+
+            if container_id:
+                media_container_ids.append(container_id)
+            else:
+                logger.warning(f"Failed to create media container for image {idx}")
+
+        if not media_container_ids:
+            logger.error("No media containers created successfully")
+            return None
+
+        # Step 2: Create carousel container with all media IDs
+        params = {
+            'media_type': 'CAROUSEL',
+            'children': ','.join(media_container_ids),
+            'text': text,
+            'access_token': self.access_token
+        }
+
+        data = self._make_request('POST', f"{self.user_id}/threads", params)
+
+        if data and 'id' in data:
+            carousel_id = data['id']
+            logger.info(f"Created carousel container with {len(media_container_ids)} images: {carousel_id}")
+            return carousel_id
+
+        logger.error(f"No carousel container ID in response: {data}")
+        return None
+
     def publish_container(self, container_id: str) -> bool:
         """Publish a media container as a Threads post"""
-        try:
-            endpoint = f"{self.api_base}/{self.user_id}/threads_publish"
+        params = {
+            'creation_id': container_id,
+            'access_token': self.access_token
+        }
 
-            params = {
-                'creation_id': container_id,
-                'access_token': self.access_token
-            }
+        data = self._make_request('POST', f"{self.user_id}/threads_publish", params)
 
-            response = requests.post(endpoint, params=params)
-            response.raise_for_status()
+        if data and 'id' in data:
+            logger.info(f"Published post: {data['id']}")
+            return True
 
-            data = response.json()
-            post_id = data.get('id')
+        logger.error(f"No post ID in response: {data}")
+        return False
 
-            if post_id:
-                logger.info(f"Published post: {post_id}")
-                return True
-            else:
-                logger.error(f"No post ID in response: {data}")
-                return False
+    def post_to_threads(self, text: str, media_urls: Optional[List[str]] = None) -> bool:
+        """Create and publish a post to Threads (text-only, single image, or carousel)"""
+        # If multiple images provided, create carousel post
+        if media_urls and len(media_urls) > 1:
+            return self.post_carousel_to_threads(text, media_urls)
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error publishing container: {e}")
-            if hasattr(e.response, 'text'):
-                logger.error(f"Response: {e.response.text}")
+        # Single image or text-only post
+        single_image = media_urls[0] if media_urls and len(media_urls) == 1 else None
+        container_id = self.create_media_container(text, media_url=single_image)
+        if not container_id:
             return False
 
-    def post_to_threads(self, text: str) -> bool:
-        """Create and publish a post to Threads"""
-        container_id = self.create_media_container(text)
-        if container_id:
-            # Wait a moment between container creation and publishing
-            time.sleep(1)
-            return self.publish_container(container_id)
-        return False
+        time.sleep(Config.CONTAINER_PUBLISH_DELAY)
+        return self.publish_container(container_id)
+
+    def post_carousel_to_threads(self, text: str, media_urls: List[str]) -> bool:
+        """Create and publish a carousel post to Threads with multiple images"""
+        carousel_id = self.create_carousel_container(text, media_urls)
+        if not carousel_id:
+            return False
+
+        time.sleep(Config.CONTAINER_PUBLISH_DELAY)
+        return self.publish_container(carousel_id)
 
     def check_rate_limits(self) -> Dict:
         """Check current API rate limits"""
-        try:
-            endpoint = f"{self.api_base}/{self.user_id}/threads_publishing_limit"
-            params = {
-                'fields': 'quota_usage,config',
-                'access_token': self.access_token
-            }
+        params = {
+            'fields': 'quota_usage,config',
+            'access_token': self.access_token
+        }
 
-            response = requests.get(endpoint, params=params)
-            response.raise_for_status()
+        data = self._make_request('GET', f"{self.user_id}/threads_publishing_limit", params)
 
-            data = response.json()
+        if data:
             logger.info(f"Rate limit status: {data}")
             return data
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error checking rate limits: {e}")
-            return {}
+        return {}
 
 
+# ============= POST MANAGER =============
 class DealsPostManager:
     """Manages the process of fetching deals and posting to Threads"""
 
-    def __init__(self):
-        self.threads_api = ThreadsAPI()
-        self.posted_deals_file = 'posted_deals.json'
-        self.posted_deals = self.load_posted_deals()
+    def __init__(self, test_mode: bool = False):
+        self.threads_api = ThreadsAPI() if not test_mode else None
+        self.posted_deals_file = Config.POSTED_DEALS_FILE
+        self.posted_deals = self._load_posted_deals()
+        self.test_mode = test_mode
 
-    def load_posted_deals(self) -> List[str]:
+    def _load_posted_deals(self) -> List[str]:
         """Load previously posted deals to avoid duplicates"""
-        if os.path.exists(self.posted_deals_file):
-            try:
-                with open(self.posted_deals_file, 'r') as f:
-                    return json.load(f)
-            except:
-                pass
-        return []
+        if not os.path.exists(self.posted_deals_file):
+            return []
 
-    def save_posted_deals(self):
+        try:
+            with open(self.posted_deals_file, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error(f"Error loading posted deals: {e}")
+            return []
+
+    def _save_posted_deals(self):
         """Save posted deals to file"""
-        # Keep only last 100 deals to prevent file from growing too large
-        self.posted_deals = self.posted_deals[-100:]
-        with open(self.posted_deals_file, 'w') as f:
-            json.dump(self.posted_deals, f)
+        self.posted_deals = self.posted_deals[-Config.MAX_POSTED_DEALS_HISTORY:]
+        try:
+            with open(self.posted_deals_file, 'w') as f:
+                json.dump(self.posted_deals, f, indent=2)
+        except IOError as e:
+            logger.error(f"Error saving posted deals: {e}")
 
-    def format_deal_text(self, deal: Deal, index: int) -> str:
+    def _filter_new_deals(self, deals: List[Deal]) -> List[Deal]:
+        """Filter out previously posted deals"""
+        new_deals = []
+        for deal in deals:
+            deal_id = deal.get_unique_id()
+            if deal_id not in self.posted_deals:
+                new_deals.append(deal)
+                self.posted_deals.append(deal_id)
+        return new_deals
+
+    def _format_deal_text(self, deal: Deal, index: int) -> str:
         """Format a single deal for posting"""
-        emoji_map = {
-            1: "🥇",
-            2: "🥈",
-            3: "🥉",
-            4: "4️⃣",
-            5: "5️⃣"
-        }
+        emoji = Config.RANK_EMOJIS.get(index, f"{index}.")
 
-        emoji = emoji_map.get(index, f"{index}.")
-
-        # Format the deal text
-        text = f"{emoji} {deal.title}\n"
-        text += f"💰 {deal.price}"
+        parts = [
+            f"{emoji} {deal.title}",
+            f"💰 {deal.price}",
+        ]
 
         if deal.discount_percentage:
-            text += f" ({deal.discount_percentage} OFF)"
+            parts[1] += f" ({deal.discount_percentage} OFF)"
 
-        text += f"\n🏪 {deal.store}\n"
+        parts.extend([
+            f"🏪 {deal.store}",
+            f"🔗 {deal.link}",
+        ])
 
-        # Shorten URL if possible (you might want to use a URL shortener API here)
-        text += f"🔗 {deal.link}\n"
-
-        return text
+        return "\n".join(parts) + "\n"
 
     def create_post_content(self, deals: List[Deal]) -> str:
         """Create the full post content from a list of deals"""
-        header = "🔥 TODAY'S HOTTEST DEALS 🔥\n"
-        header += f"📅 {datetime.now().strftime('%B %d, %Y')}\n"
-        header += "─" * 30 + "\n\n"
+        header = (
+            f"🔥 TODAY'S HOTTEST DEALS 🔥\n"
+            f"📅 {datetime.now().strftime('%B %d, %Y')}\n"
+            f"{Config.SEPARATOR_LINE}\n\n"
+        )
 
-        content = header
+        deal_texts = [
+            self._format_deal_text(deal, i)
+            for i, deal in enumerate(deals[:Config.TOP_DEALS_COUNT], 1)
+        ]
 
-        for i, deal in enumerate(deals[:5], 1):  # Top 5 deals
-            content += self.format_deal_text(deal, i)
-            if i < 5:
-                content += "\n"
+        footer = (
+            f"\n{Config.SEPARATOR_LINE}\n"
+            f"💡 Follow for daily deals!\n"
+            f"#deals #savings #shopping #discounts"
+        )
 
-        footer = "\n─" * 30 + "\n"
-        footer += "💡 Follow for daily deals!\n"
-        footer += "#deals #savings #shopping #discounts"
+        content = header + "\n".join(deal_texts) + footer
 
-        content += footer
-
-        # Threads has a 500 character limit
-        if len(content) > 500:
-            # Truncate smartly
-            content = content[:497] + "..."
+        # Truncate if too long
+        if len(content) > Config.MAX_POST_LENGTH:
+            content = content[:Config.MAX_POST_LENGTH - 3] + "..."
 
         return content
 
     async def fetch_and_post_deals(self):
         """Main function to fetch deals and post to Threads"""
         logger.info("Starting deals fetch and post process...")
-
-        # Check rate limits first
-        rate_limits = self.threads_api.check_rate_limits()
 
         # Fetch deals
         async with DealsFetcher() as fetcher:
@@ -522,82 +481,83 @@ class DealsPostManager:
             logger.warning("No deals fetched")
             return
 
-        # Filter out previously posted deals
-        new_deals = []
-        for deal in deals:
-            deal_id = f"{deal.store}_{deal.title[:50]}"
-            if deal_id not in self.posted_deals:
-                new_deals.append(deal)
-                self.posted_deals.append(deal_id)
+        # Filter new deals
+        new_deals = self._filter_new_deals(deals)
 
         if not new_deals:
             logger.info("No new deals to post")
             return
 
-        # Select top 5 deals
-        top_deals = new_deals[:5]
+        # Select top deals
+        top_deals = new_deals[:Config.TOP_DEALS_COUNT]
 
-        # Create and post content
+        # Create post content
         post_content = self.create_post_content(top_deals)
         logger.info(f"Post content ({len(post_content)} chars):\n{post_content}")
 
+        # Collect image URLs from top deals
+        media_urls = [deal.image_url for deal in top_deals if deal.image_url]
+        if media_urls:
+            logger.info(f"Found {len(media_urls)} images for carousel post")
+        else:
+            logger.info("No images found, posting text-only")
+
         # Post to Threads
-        success = self.threads_api.post_to_threads(post_content)
+        if self.test_mode:
+            logger.info("TEST MODE: Skipping actual posting to Threads")
+            success = True
+        else:
+            success = self.threads_api.post_to_threads(post_content, media_urls=media_urls if media_urls else None)
 
         if success:
             logger.info("Successfully posted deals to Threads!")
-            self.save_posted_deals()
+            self._save_posted_deals()
         else:
             logger.error("Failed to post deals to Threads")
 
 
-def main():
-    """
-    Main entry point - runs once when executed.
-    Schedule this script using Windows Task Scheduler or cron to run twice daily.
-    """
-    logger.info("="*50)
-    logger.info("Starting Deals to Threads poster...")
-    logger.info(f"Run time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info("="*50)
-    #
-    # async def test_redditDeals():
-    #     async with DealsFetcher() as fetcher:
-    #         deals = await fetcher.fetch_reddit_deals()
-    #         for deal in deals:
-    #             print(deal)
-    #
-    # try:
-    #     asyncio.run(test_redditDeals())
-    #     logger.info("Slickdeals fetch test completed successfully!")
-    #     return 0  # Success
-    # #
-    # # Check for required environment variables
-    required_env = ['THREADS_ACCESS_TOKEN', 'THREADS_USER_ID']
-    missing = [var for var in required_env if not os.getenv(var)]
-
+# ============= MAIN ENTRY POINT =============
+def validate_environment() -> bool:
+    """Validate required environment variables are set"""
+    required_vars = ['THREADS_ACCESS_TOKEN', 'THREADS_USER_ID']
+    missing = [var for var in required_vars if not os.getenv(var)]
 
     if missing:
         logger.error(f"Missing required environment variables: {missing}")
-        logger.error("Please set them in your .env file")
-        return 1  # Return error code for scheduler
+        return False
+    return True
+
+
+def main() -> int:
+    """Main entry point - runs once when executed"""
+    logger.info("=" * 50)
+    logger.info("Starting Deals to Threads poster...")
+    logger.info(f"Run time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("=" * 50)
+
+    # Check environment variables
+    if not validate_environment():
+        return 1
 
     try:
+        # Determine if in test mode
+        test_mode = os.getenv('TEST_MODE', 'false').lower() == 'true'
+
         # Create manager and run the posting process
-        manager = DealsPostManager()
+        manager = DealsPostManager(test_mode=test_mode)
         asyncio.run(manager.fetch_and_post_deals())
 
-        logger.info("="*50)
+        logger.info("=" * 50)
         logger.info("Successfully completed deals posting!")
-        logger.info("="*50)
-        return 0  # Success
+        logger.info("=" * 50)
+        return 0
 
     except KeyboardInterrupt:
         logger.info("Process interrupted by user")
         return 1
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
-        return 1  # Return error code
+        return 1
 
 
 if __name__ == "__main__":

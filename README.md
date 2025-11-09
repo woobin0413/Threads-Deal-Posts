@@ -5,13 +5,8 @@ An automated Python application that fetches the best deals from FREE APIs and w
 ## Key Features 🚀
 
 - **FREE API Integration**:
-  - **CheapShark API**: Gaming deals from Steam, Epic, GOG (NO AUTH REQUIRED!)
-  - **Reddit JSON API**: Hot deals from r/deals (NO AUTH REQUIRED!)
+  - **Reddit JSON API**: Hot deals from r/deals with product images (NO AUTH REQUIRED!)
   - More free APIs can be easily added
-
-- **Web Scraping Fallback**:
-  - Slickdeals front page deals
-  - BeautifulSoup for HTML parsing
 
 - **Async Performance with aiohttp**:
   - Fetches from multiple sources concurrently
@@ -22,6 +17,7 @@ An automated Python application that fetches the best deals from FREE APIs and w
   - Scores and ranks deals by popularity
   - Removes duplicates automatically
   - Tracks posted deals to avoid repetition
+  - Filters out promoted/sponsored content (Reddit)
   - Selects top 5 deals for each post
 
 - **Professional Formatting**:
@@ -29,6 +25,7 @@ An automated Python application that fetches the best deals from FREE APIs and w
   - Structured deal information
   - Automatic hashtag inclusion
   - Character limit compliance (500 chars)
+  - Carousel posts with product images (up to 20 images per post)
 
 ## Why aiohttp? 🔄
 
@@ -45,17 +42,13 @@ Example: If fetching from 3 sources takes 3 seconds each:
 
 ## Free APIs Used 🆓
 
-### CheapShark API (Gaming Deals)
-- **URL**: https://www.cheapshark.com/api/1.0/deals
-- **Auth**: NONE REQUIRED!
-- **Provides**: PC game deals from Steam, Epic Games, GOG, etc.
-- **Documentation**: https://apidocs.cheapshark.com/
-
 ### Reddit JSON API
 - **URL**: https://www.reddit.com/r/deals/hot.json
 - **Auth**: NONE REQUIRED!
-- **Provides**: Community-voted deals
+- **Provides**: Community-voted deals with product images
 - **Note**: Just add .json to any Reddit URL
+- **Filtering**: Automatically skips promoted/sponsored posts to show only organic deals
+- **Images**: Extracts preview images and thumbnails for carousel posts
 
 ### Other Free Deal APIs You Can Add:
 - **FakeStoreAPI**: https://fakestoreapi.com (test data)
@@ -254,6 +247,7 @@ Example: If fetching from 3 sources takes 3 seconds each:
        url = "https://fakestoreapi.com/products?limit=10"
        async with self.session.get(url) as response:
            # Parse and return deals
+           # Remember to filter out promoted content if applicable
    ```
 
 2. **Adjust Number of Deals**:
@@ -276,6 +270,42 @@ Example: If fetching from 3 sources takes 3 seconds each:
    # In .env file, add:
    USE_DUMMY_DATA=true  # Enables DummyJSON API for testing
    ```
+
+## Image & Carousel Posts 📸
+
+The application automatically creates **carousel posts** with product images from Reddit deals:
+
+### How It Works
+1. **Image Extraction**: Fetches preview images and thumbnails from Reddit posts
+2. **Automatic Carousel**: When 2+ deals have images, creates a carousel post
+3. **Smart Fallback**: Posts text-only if no images are available
+4. **Up to 20 Images**: Threads API supports up to 20 images per carousel
+
+### Image Sources
+- **Reddit Preview Images**: High-quality product images (preferred)
+- **Reddit Thumbnails**: Fallback when preview not available
+
+### Technical Details
+- Creates individual media containers for each image
+- Combines them into a single carousel container
+- Adds deal text as the carousel caption
+- Automatically handles URL encoding and Reddit-specific formatting
+
+### Example Post Structure
+```
+🔥 TODAY'S HOTTEST DEALS 🔥
+📅 [Date]
+
+🥇 [Deal 1 Title]
+💰 $XX.XX
+🏪 [Store]
+🔗 [Link]
+
+🥈 [Deal 2 Title]
+...
+
+[Carousel with 5 product images - swipeable]
+```
 
 ## API Rate Limits ⚠️
 
