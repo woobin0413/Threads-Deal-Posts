@@ -29,7 +29,7 @@ class Config:
     THREADS_API_BASE = "https://graph.threads.net/v1.0"
 
     # Deal Configuration
-    TOP_DEALS_COUNT = 5
+    TOP_DEALS_COUNT = 4
     MAX_TITLE_LENGTH = 100
     MAX_POSTED_DEALS_HISTORY = 100
     DUPLICATE_TITLE_KEY_LENGTH = 50
@@ -52,7 +52,7 @@ class Config:
     DEFAULT_STORE = "Various"
 
     # Emoji mapping
-    RANK_EMOJIS = {1: "🥇", 2: "🥈", 3: "🥉", 4: "4️⃣", 5: "5️⃣"}
+    RANK_EMOJIS = {1: "🥇", 2: "🥈", 3: "🥉", 4: "4️⃣"}
 
 
 # ============= LOGGING SETUP =============
@@ -420,8 +420,14 @@ class DealsPostManager:
             deal_id = deal.get_unique_id()
             if deal_id not in self.posted_deals:
                 new_deals.append(deal)
-                self.posted_deals.append(deal_id)
         return new_deals
+
+    def _mark_deals_as_posted(self, deals: List[Deal]):
+        """Mark deals as posted by adding their IDs to the posted deals list"""
+        for deal in deals:
+            deal_id = deal.get_unique_id()
+            if deal_id not in self.posted_deals:
+                self.posted_deals.append(deal_id)
 
     def _format_deal_text(self, deal: Deal, index: int) -> str:
         """Format a single deal for posting"""
@@ -481,15 +487,24 @@ class DealsPostManager:
             logger.warning("No deals fetched")
             return
 
+        # Filter for Amazon deals only
+        amazon_deals = [deal for deal in deals if deal.store.lower() == 'amazon']
+        logger.info(f"Filtered {len(amazon_deals)} Amazon deals from {len(deals)} total deals")
+
+        if not amazon_deals:
+            logger.warning("No Amazon deals found")
+            return
+
         # Filter new deals
-        new_deals = self._filter_new_deals(deals)
+        new_deals = self._filter_new_deals(amazon_deals)
 
         if not new_deals:
-            logger.info("No new deals to post")
+            logger.info("No new Amazon deals to post")
             return
 
         # Select top deals
         top_deals = new_deals[:Config.TOP_DEALS_COUNT]
+        logger.info(f"Selected top {len(top_deals)} deals to post")
 
         # Create post content
         post_content = self.create_post_content(top_deals)
@@ -511,6 +526,8 @@ class DealsPostManager:
 
         if success:
             logger.info("Successfully posted deals to Threads!")
+            # Mark only the deals that were actually posted
+            self._mark_deals_as_posted(top_deals)
             self._save_posted_deals()
         else:
             logger.error("Failed to post deals to Threads")
