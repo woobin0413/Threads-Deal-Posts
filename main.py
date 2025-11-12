@@ -20,8 +20,8 @@ import requests
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 
-# Load environment variables
-load_dotenv()
+# Load environment variables - override system env vars with .env file
+load_dotenv(override=True)
 
 # ============= CONFIGURATION =============
 class Config:
@@ -231,7 +231,7 @@ class DealsFetcher:
             return deals
 
         with open(links_file, 'r') as f:
-            links = [line.strip() for line in f if line.strip()]
+            links = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
 
         logger.info(f"Fetching {len(links)} deals from Amazon links...")
 
@@ -300,7 +300,7 @@ class DealsFetcher:
         # Check if links file exists and has content
         if os.path.exists(Config.DEALS_LINKS_FILE):
             with open(Config.DEALS_LINKS_FILE, 'r') as f:
-                links = [line.strip() for line in f if line.strip()]
+                links = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
 
             if links:
                 logger.info(f"Using deals from {Config.DEALS_LINKS_FILE}")
@@ -343,7 +343,12 @@ class ThreadsAPI:
             return None
 
     def create_media_container(self, text: str = "", media_url: Optional[str] = None, is_carousel_item: bool = False) -> Optional[str]:
-        """Create a media container for a Threads post"""
+        """Create a media container for a Threads post
+
+        POST /{threads-user-id}/threads
+        Required params: media_type, access_token
+        Optional: text, image_url
+        """
         params = {
             'media_type': 'IMAGE' if media_url else 'TEXT',
             'access_token': self.access_token
@@ -356,11 +361,12 @@ class ThreadsAPI:
         if media_url:
             params['image_url'] = media_url
 
+        logger.info(f"Creating media container with params: media_type={params['media_type']}, text_length={len(text) if text else 0}")
         data = self._make_request('POST', f"{self.user_id}/threads", params)
 
         if data and 'id' in data:
             container_id = data['id']
-            logger.info(f"Created media container: {container_id}")
+            logger.info(f"Created media container (creation_id): {container_id}")
             return container_id
 
         logger.error(f"No container ID in response: {data}")
@@ -414,19 +420,26 @@ class ThreadsAPI:
         return None
 
     def publish_container(self, container_id: str) -> bool:
-        """Publish a media container as a Threads post"""
+        """Publish a media container as a Threads post
+
+        POST /{threads-user-id}/threads_publish
+        Required params: creation_id, access_token
+        Returns: post ID
+        """
         params = {
             'creation_id': container_id,
             'access_token': self.access_token
         }
 
+        logger.info(f"Publishing container with creation_id: {container_id}")
         data = self._make_request('POST', f"{self.user_id}/threads_publish", params)
 
         if data and 'id' in data:
-            logger.info(f"Published post: {data['id']}")
+            post_id = data['id']
+            logger.info(f"Successfully published post! Post ID: {post_id}")
             return True
 
-        logger.error(f"No post ID in response: {data}")
+        logger.error(f"Failed to publish. Response: {data}")
         return False
 
     def post_to_threads(self, text: str, media_urls: Optional[List[str]] = None) -> bool:
@@ -529,8 +542,8 @@ class DealsPostManager:
         # Use short_link if available, otherwise use regular link
         link = deal.short_link if deal.short_link else deal.link
 
-        # Simple format: emoji + title on one line, price on next line, link on separate line
-        return f"{emoji} {title}\n💰 {price_text}{discount_text}\n👉 {link}\n"
+        # Format with blank line between products for better readability
+        return f"{emoji} {title}\n💰 {price_text}{discount_text}\n👉 {link}"
 
     def create_post_content(self, deals: List[Deal]) -> str:
         """Create the full post content from a list of deals"""
@@ -551,7 +564,8 @@ class DealsPostManager:
             f"#deals #savings #shopping #discounts"
         )
 
-        content = header + "\n".join(deal_texts) + footer
+        # Join deals with double newline for spacing between products
+        content = header + "\n\n".join(deal_texts) + footer
 
         # Truncate if too long
         if len(content) > Config.MAX_POST_LENGTH:
