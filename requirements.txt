@@ -2,6 +2,8 @@
 aiohttp==3.9.1        # For async HTTP requests to fetch deals from Reddit API
 requests==2.31.0      # For synchronous HTTP requests to Threads API
 python-dotenv==1.0.1  # For loading environment variables from .env file
+beautifulsoup4==4.12.3  # For parsing Amazon product pages
+lxml==5.1.0          # HTML parser for BeautifulSoup
 
 # These are automatically installed with the above packages:
 # - certifi: SSL certificates

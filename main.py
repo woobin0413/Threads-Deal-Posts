@@ -18,6 +18,7 @@ from enum import Enum
 import aiohttp
 import requests
 from dotenv import load_dotenv
+from bs4 import BeautifulSoup
 
 # Load environment variables
 load_dotenv()
@@ -35,12 +36,13 @@ class Config:
     DUPLICATE_TITLE_KEY_LENGTH = 50
 
     # Post Configuration
-    MAX_POST_LENGTH = 500
+    MAX_POST_LENGTH = 2000  # Threads supports up to 500 chars per post, but we'll format nicely
     SEPARATOR_LINE = "─" * 30
 
     # File paths
     POSTED_DEALS_FILE = 'posted_deals.json'
     LOG_FILE = 'deals_poster.log'
+    DEALS_LINKS_FILE = 'deals_links.txt'
 
     # HTTP Configuration
     USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -80,6 +82,7 @@ class Deal:
     image_url: Optional[str]
     description: Optional[str]
     score: int = 0
+    short_link: Optional[str] = None  # Shortened link (e.g., amzn.to)
 
     def get_unique_id(self) -> str:
         """Generate unique ID for duplicate detection"""
@@ -218,13 +221,96 @@ class DealsFetcher:
 
         return unique_deals
 
-    async def fetch_all_deals(self) -> List[Deal]:
-        """Fetch deals from Reddit"""
-        logger.info("Fetching deals from Reddit...")
+    async def fetch_amazon_from_links(self, links_file: str = Config.DEALS_LINKS_FILE) -> List[Deal]:
+        """Fetch Amazon product details from shortened links in a text file"""
+        deals = []
 
+        # Read links from file
+        if not os.path.exists(links_file):
+            logger.warning(f"Links file not found: {links_file}")
+            return deals
+
+        with open(links_file, 'r') as f:
+            links = [line.strip() for line in f if line.strip()]
+
+        logger.info(f"Fetching {len(links)} deals from Amazon links...")
+
+        for idx, short_link in enumerate(links, 1):
+            try:
+                async with self.session.get(short_link, headers=self.headers, allow_redirects=True) as response:
+                    if response.status != 200:
+                        logger.warning(f"Failed to fetch {short_link}: Status {response.status}")
+                        continue
+
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'lxml')
+
+                    # Extract product title
+                    title_elem = soup.find('span', {'id': 'productTitle'})
+                    title = title_elem.get_text(strip=True) if title_elem else f"Amazon Deal {idx}"
+
+                    # Extract price
+                    price_elem = soup.find('span', {'class': 'a-offscreen'})
+                    price = price_elem.get_text(strip=True) if price_elem else "See Deal"
+
+                    # Extract discount percentage
+                    discount_elem = soup.find('span', {'class': 'savingsPercentage'})
+                    discount = discount_elem.get_text(strip=True) if discount_elem else None
+
+                    # Extract product image
+                    img_elem = soup.find('img', {'id': 'landingImage'})
+                    image_url = img_elem.get('src') if img_elem else None
+
+                    # Extract product features/description (only first feature)
+                    description = None
+                    feature_bullets = soup.find('div', {'id': 'feature-bullets'})
+                    if feature_bullets:
+                        bullets = feature_bullets.find_all('span', {'class': 'a-list-item'})
+                        for bullet in bullets[:1]:  # Get only first feature
+                            text = bullet.get_text(strip=True)
+                            if text and len(text) > 10:  # Skip empty or very short items
+                                description = text
+                                break
+
+                    deal = Deal(
+                        title=title[:Config.MAX_TITLE_LENGTH],
+                        price=price.replace('$', ''),
+                        original_price=None,
+                        discount_percentage=discount,
+                        store="Amazon",
+                        link=str(response.url),  # Full URL after redirect
+                        short_link=short_link,   # Keep the shortened link
+                        image_url=image_url,
+                        description=description,
+                        score=100 - idx  # Higher score for earlier items in the list
+                    )
+
+                    deals.append(deal)
+                    logger.info(f"Fetched: {title[:60]}... - {price}")
+
+            except Exception as e:
+                logger.error(f"Error fetching {short_link}: {e}")
+                continue
+
+        logger.info(f"Successfully fetched {len(deals)} deals from links")
+        return deals
+
+    async def fetch_all_deals(self) -> List[Deal]:
+        """Fetch deals from links file or Reddit"""
+        # Check if links file exists and has content
+        if os.path.exists(Config.DEALS_LINKS_FILE):
+            with open(Config.DEALS_LINKS_FILE, 'r') as f:
+                links = [line.strip() for line in f if line.strip()]
+
+            if links:
+                logger.info(f"Using deals from {Config.DEALS_LINKS_FILE}")
+                deals = await self.fetch_amazon_from_links()
+                return deals
+
+        # Fallback to Reddit
+        logger.info("Fetching deals from Reddit...")
         deals = await self.fetch_reddit_deals()
         unique_deals = self._remove_duplicates(deals)
-
         logger.info(f"Fetched {len(unique_deals)} unique deals")
         return unique_deals
 
@@ -430,23 +516,21 @@ class DealsPostManager:
                 self.posted_deals.append(deal_id)
 
     def _format_deal_text(self, deal: Deal, index: int) -> str:
-        """Format a single deal for posting"""
+        """Format a single deal for posting without description"""
         emoji = Config.RANK_EMOJIS.get(index, f"{index}.")
 
-        parts = [
-            f"{emoji} {deal.title}",
-            f"💰 {deal.price}",
-        ]
+        # Clean up title (remove extra info)
+        title = deal.title.split(' - ')[0][:50]
 
-        if deal.discount_percentage:
-            parts[1] += f" ({deal.discount_percentage} OFF)"
+        # Format price
+        price_text = f"${deal.price}" if not deal.price.startswith('$') else deal.price
+        discount_text = f" ({deal.discount_percentage} off)" if deal.discount_percentage else ""
 
-        parts.extend([
-            f"🏪 {deal.store}",
-            f"🔗 {deal.link}",
-        ])
+        # Use short_link if available, otherwise use regular link
+        link = deal.short_link if deal.short_link else deal.link
 
-        return "\n".join(parts) + "\n"
+        # Simple format: emoji + title on one line, price on next line, link on separate line
+        return f"{emoji} {title}\n💰 {price_text}{discount_text}\n👉 {link}\n"
 
     def create_post_content(self, deals: List[Deal]) -> str:
         """Create the full post content from a list of deals"""

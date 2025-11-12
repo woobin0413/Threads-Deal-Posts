@@ -29,6 +29,7 @@ Thumbs.db
 
 # Data files
 posted_deals.json
+deals_links.txt
 
 # Testing
 .pytest_cache/
