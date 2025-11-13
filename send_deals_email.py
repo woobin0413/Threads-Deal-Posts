@@ -13,10 +13,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ============= CONFIGURATION =============
-RECIPIENT_EMAILS = [
-    "wndnqls123@gmail.com",
-    "jungwonya@gmail.com"
-]
+# Get recipient emails from .env (comma-separated)
+RECIPIENT_EMAILS = os.getenv('RECIPIENT_EMAILS', '').split(',')
+RECIPIENT_EMAILS = [email.strip() for email in RECIPIENT_EMAILS if email.strip()]
+
+if not RECIPIENT_EMAILS:
+    print("❌ Error: RECIPIENT_EMAILS not configured in .env file")
+    print("   Add: RECIPIENT_EMAILS=email1@example.com,email2@example.com")
+    exit(1)
 
 # Scraping settings
 MIN_THUMBS_UP = 50  # Minimum thumbs up for deals
