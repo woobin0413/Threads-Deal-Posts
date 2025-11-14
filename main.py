@@ -235,31 +235,92 @@ class DealsFetcher:
 
         logger.info(f"Fetching {len(links)} deals from Amazon links...")
 
+        # Enhanced headers to avoid bot detection
+        enhanced_headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0',
+        }
+
         for idx, short_link in enumerate(links, 1):
             try:
-                async with self.session.get(short_link, headers=self.headers, allow_redirects=True) as response:
+                async with self.session.get(short_link, headers=enhanced_headers, allow_redirects=True) as response:
                     if response.status != 200:
                         logger.warning(f"Failed to fetch {short_link}: Status {response.status}")
                         continue
 
                     html = await response.text()
-                    soup = BeautifulSoup(html, 'lxml')
+                    soup = BeautifulSoup(html, 'html.parser')
 
-                    # Extract product title
-                    title_elem = soup.find('span', {'id': 'productTitle'})
-                    title = title_elem.get_text(strip=True) if title_elem else f"Amazon Deal {idx}"
+                    # Try multiple selectors for title
+                    title = None
+                    title_selectors = [
+                        ('span', {'id': 'productTitle'}),
+                        ('h1', {'id': 'title'}),
+                        ('span', {'class': 'product-title-word-break'}),
+                    ]
+                    for tag, attrs in title_selectors:
+                        elem = soup.find(tag, attrs)
+                        if elem:
+                            title = elem.get_text(strip=True)
+                            break
 
-                    # Extract price
-                    price_elem = soup.find('span', {'class': 'a-offscreen'})
-                    price = price_elem.get_text(strip=True) if price_elem else "See Deal"
+                    if not title:
+                        title = f"Amazon Deal {idx}"
+                        logger.warning(f"Could not find title for {short_link}")
+
+                    # Try multiple selectors for price
+                    price = None
+                    price_selectors = [
+                        ('span', {'class': 'a-offscreen'}),
+                        ('span', {'class': 'a-price-whole'}),
+                        ('span', {'class': 'priceToPay'}),
+                        ('span', {'id': 'priceblock_ourprice'}),
+                        ('span', {'id': 'priceblock_dealprice'}),
+                    ]
+                    for tag, attrs in price_selectors:
+                        elem = soup.find(tag, attrs)
+                        if elem:
+                            price = elem.get_text(strip=True)
+                            break
+
+                    if not price:
+                        price = "See Deal"
+                        logger.warning(f"Could not find price for {short_link}")
 
                     # Extract discount percentage
-                    discount_elem = soup.find('span', {'class': 'savingsPercentage'})
-                    discount = discount_elem.get_text(strip=True) if discount_elem else None
+                    discount = None
+                    discount_selectors = [
+                        ('span', {'class': 'savingsPercentage'}),
+                        ('span', {'class': 'a-size-large a-color-price savingPriceOverride'}),
+                    ]
+                    for tag, attrs in discount_selectors:
+                        elem = soup.find(tag, attrs)
+                        if elem:
+                            discount = elem.get_text(strip=True)
+                            break
 
-                    # Extract product image
-                    img_elem = soup.find('img', {'id': 'landingImage'})
-                    image_url = img_elem.get('src') if img_elem else None
+                    # Try multiple selectors for product image
+                    image_url = None
+                    img_selectors = [
+                        ('img', {'id': 'landingImage'}),
+                        ('img', {'id': 'imgBlkFront'}),
+                        ('img', {'class': 'a-dynamic-image'}),
+                    ]
+                    for tag, attrs in img_selectors:
+                        elem = soup.find(tag, attrs)
+                        if elem:
+                            image_url = elem.get('src') or elem.get('data-old-hires')
+                            if image_url:
+                                break
 
                     # Extract product features/description (only first feature)
                     description = None
@@ -272,9 +333,13 @@ class DealsFetcher:
                                 description = text
                                 break
 
+                    # Clean up price
+                    if price and price != "See Deal":
+                        price = price.replace('$', '').replace(',', '').strip()
+
                     deal = Deal(
                         title=title[:Config.MAX_TITLE_LENGTH],
-                        price=price.replace('$', ''),
+                        price=price,
                         original_price=None,
                         discount_percentage=discount,
                         store="Amazon",
@@ -394,6 +459,8 @@ class ThreadsAPI:
 
             if container_id:
                 media_container_ids.append(container_id)
+                # Small delay between creating media containers
+                time.sleep(0.5)
             else:
                 logger.warning(f"Failed to create media container for image {idx}")
 
@@ -401,7 +468,8 @@ class ThreadsAPI:
             logger.error("No media containers created successfully")
             return None
 
-        # Step 2: Create carousel container with all media IDs
+        # Step 2: Create carousel container with all media IDs immediately after
+        # (without additional delay to avoid container expiration)
         params = {
             'media_type': 'CAROUSEL',
             'children': ','.join(media_container_ids),
@@ -532,8 +600,8 @@ class DealsPostManager:
         """Format a single deal for posting without description"""
         emoji = Config.RANK_EMOJIS.get(index, f"{index}.")
 
-        # Clean up title (remove extra info)
-        title = deal.title.split(' - ')[0][:50]
+        # Use full title (already truncated to MAX_TITLE_LENGTH=100 when created)
+        title = deal.title
 
         # Format price
         price_text = f"${deal.price}" if not deal.price.startswith('$') else deal.price
@@ -545,31 +613,57 @@ class DealsPostManager:
         # Format with blank line between products for better readability
         return f"{emoji} {title}\n💰 {price_text}{discount_text}\n👉 {link}"
 
+    def _truncate_at_word(self, text: str, max_length: int) -> str:
+        """Truncate text at word boundary, ensuring clean cutoff"""
+        if len(text) <= max_length:
+            return text
+
+        # Find the last space before max_length
+        truncated = text[:max_length]
+        last_space = truncated.rfind(' ')
+
+        if last_space > max_length * 0.7:  # Only use word boundary if it's reasonably close
+            return text[:last_space].rstrip(',')
+        return truncated.rstrip(',')
+
     def create_post_content(self, deals: List[Deal]) -> str:
         """Create the full post content from a list of deals"""
-        header = (
-            f"🔥 TODAY'S HOTTEST DEALS 🔥\n"
-            f"📅 {datetime.now().strftime('%B %d, %Y')}\n"
-            f"{Config.SEPARATOR_LINE}\n\n"
-        )
+        header = f"🔥 TODAY'S HOTTEST DEALS 🔥\n📅 {datetime.now().strftime('%B %d, %Y')}\n\n"
+        footer = f"\n💡 Follow for daily deals!\n#deals #savings #shopping"
+        footer_short = f"\n#deals #savings"
 
+        max_length = 500
+
+        # First try with full titles
         deal_texts = [
             self._format_deal_text(deal, i)
             for i, deal in enumerate(deals[:Config.TOP_DEALS_COUNT], 1)
         ]
-
-        footer = (
-            f"\n{Config.SEPARATOR_LINE}\n"
-            f"💡 Follow for daily deals!\n"
-            f"#deals #savings #shopping #discounts"
-        )
-
-        # Join deals with double newline for spacing between products
         content = header + "\n\n".join(deal_texts) + footer
 
-        # Truncate if too long
-        if len(content) > Config.MAX_POST_LENGTH:
-            content = content[:Config.MAX_POST_LENGTH - 3] + "..."
+        # If too long, try shorter footer
+        if len(content) > max_length:
+            content = header + "\n\n".join(deal_texts) + footer_short
+
+        # If still too long, truncate titles proportionally at word boundaries
+        if len(content) > max_length:
+            available_space = max_length - len(header) - len(footer_short) - (len(deals) * 2 * 2)  # account for \n\n between deals
+            # Calculate space per deal
+            price_link_overhead = 50  # approximate chars for price and link per deal
+            title_space_per_deal = (available_space // len(deals)) - price_link_overhead
+            title_space_per_deal = max(40, title_space_per_deal)  # minimum 40 chars per title
+
+            # Recreate deal texts with truncated titles at word boundaries
+            truncated_deal_texts = []
+            for i, deal in enumerate(deals[:Config.TOP_DEALS_COUNT], 1):
+                emoji = Config.RANK_EMOJIS.get(i, f"{i}.")
+                title = self._truncate_at_word(deal.title, title_space_per_deal)
+                price_text = f"${deal.price}" if not deal.price.startswith('$') else deal.price
+                discount_text = f" ({deal.discount_percentage} off)" if deal.discount_percentage else ""
+                link = deal.short_link if deal.short_link else deal.link
+                truncated_deal_texts.append(f"{emoji} {title}\n💰 {price_text}{discount_text}\n👉 {link}")
+
+            content = header + "\n\n".join(truncated_deal_texts) + footer_short
 
         return content
 
@@ -593,8 +687,20 @@ class DealsPostManager:
             logger.warning("No Amazon deals found")
             return
 
-        # Filter new deals
-        new_deals = self._filter_new_deals(amazon_deals)
+        # Check if using deals_links.txt file
+        using_links_file = os.path.exists(Config.DEALS_LINKS_FILE)
+        if using_links_file:
+            with open(Config.DEALS_LINKS_FILE, 'r') as f:
+                links = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+            using_links_file = len(links) > 0
+
+        # Skip duplicate checking when using links file
+        if using_links_file:
+            logger.info("Using deals_links.txt - skipping duplicate checking")
+            new_deals = amazon_deals
+        else:
+            # Filter new deals only when using Reddit/other sources
+            new_deals = self._filter_new_deals(amazon_deals)
 
         if not new_deals:
             logger.info("No new Amazon deals to post")
