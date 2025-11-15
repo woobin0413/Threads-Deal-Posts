@@ -6,14 +6,12 @@ Designed to be run via Windows Task Scheduler or cron job.
 
 import os
 import asyncio
-import json
 import logging
 import re
 import time
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from enum import Enum
 
 import aiohttp
 import requests
@@ -32,15 +30,12 @@ class Config:
     # Deal Configuration
     TOP_DEALS_COUNT = 4
     MAX_TITLE_LENGTH = 100
-    MAX_POSTED_DEALS_HISTORY = 100
-    DUPLICATE_TITLE_KEY_LENGTH = 50
 
     # Post Configuration
     MAX_POST_LENGTH = 2000  # Threads supports up to 500 chars per post, but we'll format nicely
     SEPARATOR_LINE = "─" * 30
 
     # File paths
-    POSTED_DEALS_FILE = 'posted_deals.json'
     LOG_FILE = 'deals_poster.log'
     DEALS_LINKS_FILE = 'deals_links.txt'
 
@@ -83,14 +78,6 @@ class Deal:
     description: Optional[str]
     score: int = 0
     short_link: Optional[str] = None  # Shortened link (e.g., amzn.to)
-
-    def get_unique_id(self) -> str:
-        """Generate unique ID for duplicate detection"""
-        return f"{self.store}_{self.title[:50]}"
-
-    def get_normalized_title(self) -> str:
-        """Get normalized title for duplicate detection"""
-        return re.sub(r'[^a-zA-Z0-9]', '', self.title.lower())[:Config.DUPLICATE_TITLE_KEY_LENGTH]
 
 
 # ============= UTILITY FUNCTIONS =============
@@ -555,46 +542,7 @@ class DealsPostManager:
 
     def __init__(self, test_mode: bool = False):
         self.threads_api = ThreadsAPI() if not test_mode else None
-        self.posted_deals_file = Config.POSTED_DEALS_FILE
-        self.posted_deals = self._load_posted_deals()
         self.test_mode = test_mode
-
-    def _load_posted_deals(self) -> List[str]:
-        """Load previously posted deals to avoid duplicates"""
-        if not os.path.exists(self.posted_deals_file):
-            return []
-
-        try:
-            with open(self.posted_deals_file, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Error loading posted deals: {e}")
-            return []
-
-    def _save_posted_deals(self):
-        """Save posted deals to file"""
-        self.posted_deals = self.posted_deals[-Config.MAX_POSTED_DEALS_HISTORY:]
-        try:
-            with open(self.posted_deals_file, 'w') as f:
-                json.dump(self.posted_deals, f, indent=2)
-        except IOError as e:
-            logger.error(f"Error saving posted deals: {e}")
-
-    def _filter_new_deals(self, deals: List[Deal]) -> List[Deal]:
-        """Filter out previously posted deals"""
-        new_deals = []
-        for deal in deals:
-            deal_id = deal.get_unique_id()
-            if deal_id not in self.posted_deals:
-                new_deals.append(deal)
-        return new_deals
-
-    def _mark_deals_as_posted(self, deals: List[Deal]):
-        """Mark deals as posted by adding their IDs to the posted deals list"""
-        for deal in deals:
-            deal_id = deal.get_unique_id()
-            if deal_id not in self.posted_deals:
-                self.posted_deals.append(deal_id)
 
     def _format_deal_text(self, deal: Deal, index: int) -> str:
         """Format a single deal for posting without description"""
@@ -687,27 +635,8 @@ class DealsPostManager:
             logger.warning("No Amazon deals found")
             return
 
-        # Check if using deals_links.txt file
-        using_links_file = os.path.exists(Config.DEALS_LINKS_FILE)
-        if using_links_file:
-            with open(Config.DEALS_LINKS_FILE, 'r') as f:
-                links = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
-            using_links_file = len(links) > 0
-
-        # Skip duplicate checking when using links file
-        if using_links_file:
-            logger.info("Using deals_links.txt - skipping duplicate checking")
-            new_deals = amazon_deals
-        else:
-            # Filter new deals only when using Reddit/other sources
-            new_deals = self._filter_new_deals(amazon_deals)
-
-        if not new_deals:
-            logger.info("No new Amazon deals to post")
-            return
-
-        # Select top deals
-        top_deals = new_deals[:Config.TOP_DEALS_COUNT]
+        # Select top deals (no duplicate checking)
+        top_deals = amazon_deals[:Config.TOP_DEALS_COUNT]
         logger.info(f"Selected top {len(top_deals)} deals to post")
 
         # Create post content
@@ -730,9 +659,6 @@ class DealsPostManager:
 
         if success:
             logger.info("Successfully posted deals to Threads!")
-            # Mark only the deals that were actually posted
-            self._mark_deals_as_posted(top_deals)
-            self._save_posted_deals()
         else:
             logger.error("Failed to post deals to Threads")
 
