@@ -28,7 +28,7 @@ class Config:
     THREADS_API_BASE = "https://graph.threads.net/v1.0"
 
     # Deal Configuration
-    TOP_DEALS_COUNT = 4
+    TOP_DEALS_COUNT = 3
     MAX_TITLE_LENGTH = 100
 
     # Post Configuration
@@ -49,7 +49,7 @@ class Config:
     DEFAULT_STORE = "Various"
 
     # Emoji mapping
-    RANK_EMOJIS = {1: "🥇", 2: "🥈", 3: "🥉", 4: "4️⃣"}
+    RANK_EMOJIS = {1: "🥇", 2: "🥈", 3: "🥉"}
 
 
 # ============= LOGGING SETUP =============
@@ -108,6 +108,32 @@ class TextExtractor:
             return int(match.group()) if match else 0
         except (AttributeError, ValueError):
             return 0
+
+    @staticmethod
+    def extract_asin_from_url(url: str) -> Optional[str]:
+        """Extract ASIN from Amazon URL"""
+        if not url:
+            return None
+        # Pattern 1: /dp/ASIN/ or /dp/ASIN? or /dp/ASIN
+        match = re.search(r'/dp/([A-Z0-9]{10})(?:[/?]|$)', url)
+        if match:
+            return match.group(1)
+        # Pattern 2: /gp/product/ASIN/
+        match = re.search(r'/gp/product/([A-Z0-9]{10})(?:[/?]|$)', url)
+        if match:
+            return match.group(1)
+        # Pattern 3: /product/ASIN/
+        match = re.search(r'/product/([A-Z0-9]{10})(?:[/?]|$)', url)
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
+    def create_affiliate_link(asin: str, affiliate_tag: str = None) -> str:
+        """Create Amazon affiliate link from ASIN"""
+        if not affiliate_tag:
+            affiliate_tag = os.getenv('AMAZON_AFFILIATE_TAG', 'boostdeals20-20')
+        return f"https://www.amazon.com/dp/{asin}?tag={affiliate_tag}"
 
 
 # ============= DEALS FETCHER =============
@@ -347,9 +373,148 @@ class DealsFetcher:
         logger.info(f"Successfully fetched {len(deals)} deals from links")
         return deals
 
+    async def fetch_slickdeals_amazon(self, min_thumbs_up: int = 100, max_deals: int = 10) -> List[Deal]:
+        """Fetch Amazon deals from Slickdeals with minimum thumbs up"""
+        deals = []
+
+        # Try multiple pages to find enough deals
+        urls = [
+            "https://slickdeals.net/",
+            "https://slickdeals.net/?page=2",
+            "https://slickdeals.net/?page=3"
+        ]
+
+        logger.info(f"Fetching Amazon deals from Slickdeals with {min_thumbs_up}+ thumbs up...")
+
+        for url in urls:
+            try:
+                async with self.session.get(url, headers=self.headers, timeout=10) as response:
+                    if response.status != 200:
+                        continue
+
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+
+                    # Find all deal cards
+                    deal_cards = soup.find_all('div', class_='dealCard') or \
+                                soup.find_all('li', class_='fpGridBox') or \
+                                soup.find_all('div', attrs={'data-role': 'dealCard'})
+
+                    logger.info(f"   Found {len(deal_cards)} deal cards on {url}")
+
+                    for card in deal_cards:
+                        try:
+                            # Extract link first to check if it's Amazon
+                            links_in_card = card.find_all('a')
+                            if len(links_in_card) < 2:
+                                continue
+
+                            title_elem = links_in_card[1]
+                            title = title_elem.get_text(strip=True)
+                            slickdeals_link = title_elem.get('href', '')
+
+                            if slickdeals_link and not slickdeals_link.startswith('http'):
+                                slickdeals_link = f"https://slickdeals.net{slickdeals_link}"
+
+                            # Check if deal is for Amazon
+                            is_amazon = False
+
+                            # Check store link (try multiple class patterns)
+                            store_elem = card.find('a', class_=lambda x: x and ('merchant' in str(x).lower() or 'store' in str(x).lower()))
+                            if store_elem and 'amazon' in store_elem.get_text(strip=True).lower():
+                                is_amazon = True
+
+                            # Check if title mentions Amazon
+                            if 'amazon' in title.lower():
+                                is_amazon = True
+
+                            if not is_amazon:
+                                continue
+
+                            # Extract thumbs up count
+                            thumbs_elem = card.find('span', class_='dealCardSocialControls__voteCount')
+                            thumbs_up = 0
+                            if thumbs_elem:
+                                thumbs_text = thumbs_elem.get_text(strip=True)
+                                match = re.search(r'\d+', thumbs_text)
+                                if match:
+                                    thumbs_up = int(match.group())
+
+                            # Skip if below threshold
+                            if thumbs_up < min_thumbs_up:
+                                continue
+
+                            # Extract price
+                            price_elem = card.find('span', class_='dealCard__price')
+                            price = price_elem.get_text(strip=True) if price_elem else "See Deal"
+
+                            # Extract original price
+                            original_price_elem = card.find('span', class_='dealCard__originalPrice')
+                            original_price = original_price_elem.get_text(strip=True) if original_price_elem else None
+
+                            # Calculate discount
+                            discount = None
+                            if original_price and price != "See Deal":
+                                try:
+                                    price_num = float(price.replace('$', '').replace(',', ''))
+                                    orig_num = float(original_price.replace('$', '').replace(',', ''))
+                                    discount_pct = int((1 - price_num/orig_num) * 100)
+                                    discount = f"-{discount_pct}%"
+                                except:
+                                    pass
+
+                            # Extract image
+                            img_elems = card.find_all('img')
+                            image_url = None
+                            for img in img_elems:
+                                src = img.get('src') or img.get('data-src')
+                                if src and 'avatar' not in src.lower():
+                                    image_url = src
+                                    if not image_url.startswith('http'):
+                                        image_url = f"https:{image_url}" if image_url.startswith('//') else f"https://slickdeals.net{image_url}"
+                                    break
+
+                            # We need to get the actual Amazon URL from the Slickdeals page
+                            # For now, store the Slickdeals link and we'll extract later if needed
+                            deal = Deal(
+                                title=title[:Config.MAX_TITLE_LENGTH],
+                                price=price.replace('$', '').strip() if price != "See Deal" else price,
+                                original_price=original_price,
+                                discount_percentage=discount,
+                                store="Amazon",
+                                link=slickdeals_link,  # This will be converted to affiliate link
+                                image_url=image_url,
+                                description=None,
+                                score=thumbs_up
+                            )
+
+                            deals.append(deal)
+                            logger.info(f"   ✓ Found: {title[:60]}... (👍 {thumbs_up})")
+                            logger.info(f"      Link: {slickdeals_link}")
+
+                            if len(deals) >= max_deals:
+                                break
+
+                        except Exception as e:
+                            logger.debug(f"Error parsing deal card: {e}")
+                            continue
+
+                    if len(deals) >= max_deals:
+                        break
+
+            except Exception as e:
+                logger.warning(f"Error scraping {url}: {e}")
+                continue
+
+        # Sort by thumbs up descending
+        deals.sort(key=lambda x: x.score, reverse=True)
+        logger.info(f"Successfully fetched {len(deals)} Amazon deals from Slickdeals")
+
+        return deals[:max_deals]
+
     async def fetch_all_deals(self) -> List[Deal]:
-        """Fetch deals from links file or Reddit"""
-        # Check if links file exists and has content
+        """Fetch deals from links file, Slickdeals, or Reddit"""
+        # Priority 1: Check if links file exists and has content
         if os.path.exists(Config.DEALS_LINKS_FILE):
             with open(Config.DEALS_LINKS_FILE, 'r') as f:
                 links = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
@@ -359,7 +524,14 @@ class DealsFetcher:
                 deals = await self.fetch_amazon_from_links()
                 return deals
 
-        # Fallback to Reddit
+        # Priority 2: Fetch from Slickdeals
+        logger.info("Fetching deals from Slickdeals...")
+        deals = await self.fetch_slickdeals_amazon(min_thumbs_up=100, max_deals=20)
+
+        if deals:
+            return deals
+
+        # Priority 3: Fallback to Reddit
         logger.info("Fetching deals from Reddit...")
         deals = await self.fetch_reddit_deals()
         unique_deals = self._remove_duplicates(deals)
@@ -577,8 +749,8 @@ class DealsPostManager:
     def create_post_content(self, deals: List[Deal]) -> str:
         """Create the full post content from a list of deals"""
         header = f"🔥 TODAY'S HOTTEST DEALS 🔥\n📅 {datetime.now().strftime('%B %d, %Y')}\n\n"
-        footer = f"\n💡 Follow for daily deals!\n#deals #savings #shopping"
-        footer_short = f"\n#deals #savings"
+        footer = f"\n💡 Follow for daily deals!\n#AmazonDeals #AmazonGadgets #Deals #Savings"
+        footer_short = f"\n#AmazonDeals #Deals #Savings"
 
         max_length = 500
 
@@ -615,6 +787,86 @@ class DealsPostManager:
 
         return content
 
+    def _extract_amazon_url_from_slickdeals(self, slickdeals_url: str) -> Optional[str]:
+        """Extract Amazon URL from Slickdeals page"""
+        try:
+            headers = {
+                'User-Agent': Config.USER_AGENT,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            }
+            response = requests.get(slickdeals_url, headers=headers, timeout=10, allow_redirects=True)
+            if response.status_code != 200:
+                return None
+
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Look for Slickdeals click tracking links that go to Amazon
+            slickdeals_click_links = soup.find_all('a', href=re.compile(r'slickdeals\.net/click'))
+            for link in slickdeals_click_links:
+                href = link.get('href')
+                if href:
+                    # Follow the Slickdeals redirect to get actual Amazon URL
+                    try:
+                        redirect_response = requests.head(href, headers=headers, timeout=5, allow_redirects=True)
+                        final_url = redirect_response.url
+                        if 'amazon.com' in final_url or 'amzn.to' in final_url:
+                            logger.info(f"   Found Amazon URL via redirect: {final_url[:80]}...")
+                            return final_url
+                    except:
+                        continue
+
+            # Fallback: look for direct Amazon links (less common)
+            amazon_links = soup.find_all('a', href=re.compile(r'amazon\.com|amzn\.to'))
+            if amazon_links:
+                amazon_url = amazon_links[0].get('href')
+                if amazon_url and ('amazon.com' in amazon_url or 'amzn.to' in amazon_url):
+                    return amazon_url
+
+            return None
+        except Exception as e:
+            logger.warning(f"Error extracting Amazon URL from Slickdeals: {e}")
+            return None
+
+    def _convert_to_affiliate_link(self, deal: Deal) -> Optional[Deal]:
+        """Convert deal link to Amazon affiliate link if possible
+
+        Returns:
+            NEW Deal object with affiliate link if successful, None if ASIN extraction failed
+            Original deal object is NOT modified (for logging purposes)
+        """
+        from copy import deepcopy
+
+        # Create a copy so we don't modify the original deal (for logging)
+        deal_copy = deepcopy(deal)
+        amazon_url = deal_copy.link
+
+        # If it's a Slickdeals link, extract the Amazon URL first
+        if 'slickdeals.net' in deal_copy.link.lower():
+            logger.info(f"   Extracting Amazon URL from Slickdeals page...")
+            extracted_url = self._extract_amazon_url_from_slickdeals(deal_copy.link)
+            if extracted_url:
+                amazon_url = extracted_url
+            else:
+                logger.warning(f"   Could not extract Amazon URL from Slickdeals - skipping deal")
+                return None
+
+        # Extract ASIN and create affiliate link
+        if 'amazon.com' in amazon_url.lower() or 'amzn.to' in amazon_url.lower():
+            asin = TextExtractor.extract_asin_from_url(amazon_url)
+            if asin:
+                affiliate_link = TextExtractor.create_affiliate_link(asin)
+                logger.info(f"   ✅ Converted to affiliate link: ASIN={asin}")
+                deal_copy.link = affiliate_link
+                deal_copy.short_link = affiliate_link
+                return deal_copy
+            else:
+                logger.warning(f"   ❌ Could not extract ASIN from: {amazon_url} - skipping deal")
+                return None
+
+        # If not an Amazon URL, skip it
+        logger.warning(f"   ❌ Not an Amazon URL: {amazon_url} - skipping deal")
+        return None
+
     async def fetch_and_post_deals(self):
         """Main function to fetch deals and post to Threads"""
         logger.info("Starting deals fetch and post process...")
@@ -635,9 +887,32 @@ class DealsPostManager:
             logger.warning("No Amazon deals found")
             return
 
-        # Select top deals (no duplicate checking)
+        # Sort by score ascending (lowest likes first) and select top 3
+        amazon_deals.sort(key=lambda x: x.score)
         top_deals = amazon_deals[:Config.TOP_DEALS_COUNT]
-        logger.info(f"Selected top {len(top_deals)} deals to post")
+        logger.info(f"Selected top {len(top_deals)} deals to post (sorted by least likes)")
+
+        # Log original deals with Slickdeals links
+        logger.info("Original deals (with Slickdeals links):")
+        for i, deal in enumerate(top_deals, 1):
+            logger.info(f"  {i}. {deal.title[:60]}... (👍 {deal.score})")
+            logger.info(f"     Original link: {deal.link}")
+
+        # Convert all links to affiliate links and filter out deals without valid ASINs
+        logger.info("Converting links to Amazon affiliate links...")
+        converted_deals = []
+        for deal in top_deals:
+            converted_deal = self._convert_to_affiliate_link(deal)
+            if converted_deal:
+                converted_deals.append(converted_deal)
+
+        top_deals = converted_deals
+        logger.info(f"Successfully converted {len(top_deals)} deals to affiliate links")
+
+        # If no valid deals with ASINs found, don't post
+        if not top_deals:
+            logger.warning("No deals with valid Amazon ASINs found - skipping post")
+            return
 
         # Create post content
         post_content = self.create_post_content(top_deals)
