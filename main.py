@@ -746,36 +746,47 @@ class DealsPostManager:
             return text[:last_space].rstrip(',')
         return truncated.rstrip(',')
 
-    def create_post_content(self, deals: List[Deal]) -> str:
-        """Create the full post content from a list of deals"""
-        header = f"🔥 TODAY'S HOTTEST DEALS 🔥\n📅 {datetime.now().strftime('%B %d, %Y')}\n\n"
-        footer = f"\n💡 Follow for daily deals!\n#AmazonDeals #AmazonGadgets #Deals #Savings"
-        footer_short = f"\n#AmazonDeals #Deals #Savings"
+    def create_post_content(self, deals: List[Deal], num_deals: int = None) -> tuple[str, int]:
+        """Create the full post content from a list of deals
+
+        Args:
+            deals: List of Deal objects to format
+            num_deals: Number of deals to include (defaults to Config.TOP_DEALS_COUNT)
+
+        Returns:
+            Tuple of (content, actual_num_deals_used)
+        """
+        if num_deals is None:
+            num_deals = Config.TOP_DEALS_COUNT
+
+        header = f"🔥 TODAY'S HOTTEST DEALS 🔥\n\n"
+        footer = f"\n#AmazonDeals #Deals #Savings"
 
         max_length = 500
 
-        # First try with full titles
+        # First try with specified number of deals and full titles
         deal_texts = [
             self._format_deal_text(deal, i)
-            for i, deal in enumerate(deals[:Config.TOP_DEALS_COUNT], 1)
+            for i, deal in enumerate(deals[:num_deals], 1)
         ]
         content = header + "\n\n".join(deal_texts) + footer
 
-        # If too long, try shorter footer
-        if len(content) > max_length:
-            content = header + "\n\n".join(deal_texts) + footer_short
+        # If still too long, try reducing to 2 deals (only if we started with 3)
+        if len(content) > max_length and num_deals == 3:
+            logger.warning(f"Content with 3 deals is {len(content)} chars (max 500). Reducing to 2 deals...")
+            return self.create_post_content(deals, num_deals=2)
 
         # If still too long, truncate titles proportionally at word boundaries
         if len(content) > max_length:
-            available_space = max_length - len(header) - len(footer_short) - (len(deals) * 2 * 2)  # account for \n\n between deals
+            available_space = max_length - len(header) - len(footer) - (num_deals * 2 * 2)  # account for \n\n between deals
             # Calculate space per deal
             price_link_overhead = 50  # approximate chars for price and link per deal
-            title_space_per_deal = (available_space // len(deals)) - price_link_overhead
+            title_space_per_deal = (available_space // num_deals) - price_link_overhead
             title_space_per_deal = max(40, title_space_per_deal)  # minimum 40 chars per title
 
             # Recreate deal texts with truncated titles at word boundaries
             truncated_deal_texts = []
-            for i, deal in enumerate(deals[:Config.TOP_DEALS_COUNT], 1):
+            for i, deal in enumerate(deals[:num_deals], 1):
                 emoji = Config.RANK_EMOJIS.get(i, f"{i}.")
                 title = self._truncate_at_word(deal.title, title_space_per_deal)
                 price_text = f"${deal.price}" if not deal.price.startswith('$') else deal.price
@@ -783,9 +794,9 @@ class DealsPostManager:
                 link = deal.short_link if deal.short_link else deal.link
                 truncated_deal_texts.append(f"{emoji} {title}\n💰 {price_text}{discount_text}\n👉 {link}")
 
-            content = header + "\n\n".join(truncated_deal_texts) + footer_short
+            content = header + "\n\n".join(truncated_deal_texts) + footer
 
-        return content
+        return content, num_deals
 
     def _extract_amazon_url_from_slickdeals(self, slickdeals_url: str) -> Optional[str]:
         """Extract Amazon URL from Slickdeals page"""
@@ -914,14 +925,14 @@ class DealsPostManager:
             logger.warning("No deals with valid Amazon ASINs found - skipping post")
             return
 
-        # Create post content
-        post_content = self.create_post_content(top_deals)
-        logger.info(f"Post content ({len(post_content)} chars):\n{post_content}")
+        # Create post content and get actual number of deals used
+        post_content, actual_deals_count = self.create_post_content(top_deals)
+        logger.info(f"Post content ({len(post_content)} chars, {actual_deals_count} deals):\n{post_content}")
 
-        # Collect image URLs from top deals
-        media_urls = [deal.image_url for deal in top_deals if deal.image_url]
+        # Collect image URLs only from the deals that were actually included in the post
+        media_urls = [deal.image_url for deal in top_deals[:actual_deals_count] if deal.image_url]
         if media_urls:
-            logger.info(f"Found {len(media_urls)} images for carousel post")
+            logger.info(f"Found {len(media_urls)} images for carousel post (matching {actual_deals_count} deals)")
         else:
             logger.info("No images found, posting text-only")
 
