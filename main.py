@@ -78,6 +78,7 @@ class Deal:
     description: Optional[str]
     score: int = 0
     short_link: Optional[str] = None  # Shortened link (e.g., amzn.to)
+    promo_code: Optional[str] = None  # Promo/coupon code if available
 
 
 # ============= UTILITY FUNCTIONS =============
@@ -474,6 +475,21 @@ class DealsFetcher:
                                         image_url = f"https:{image_url}" if image_url.startswith('//') else f"https://slickdeals.net{image_url}"
                                     break
 
+                            # Extract promo code from title first
+                            promo_code = None
+                            promo_patterns = [
+                                r'apply promo code\s+([A-Z0-9]+)',
+                                r'promo code[:\s]+([A-Z0-9]+)',
+                                r'coupon code[:\s]+([A-Z0-9]+)',
+                                r'code[:\s]+([A-Z0-9]{6,10})',
+                                r'use code[:\s]+([A-Z0-9]+)',
+                            ]
+                            for pattern in promo_patterns:
+                                match = re.search(pattern, title, re.IGNORECASE)
+                                if match:
+                                    promo_code = match.group(1)
+                                    break
+
                             # We need to get the actual Amazon URL from the Slickdeals page
                             # For now, store the Slickdeals link and we'll extract later if needed
                             deal = Deal(
@@ -485,7 +501,8 @@ class DealsFetcher:
                                 link=slickdeals_link,  # This will be converted to affiliate link
                                 image_url=image_url,
                                 description=None,
-                                score=thumbs_up
+                                score=thumbs_up,
+                                promo_code=promo_code
                             )
 
                             deals.append(deal)
@@ -723,15 +740,16 @@ class DealsPostManager:
         # Use full title (already truncated to MAX_TITLE_LENGTH=100 when created)
         title = deal.title
 
-        # Format price
+        # Format price with promo code if available
         price_text = f"${deal.price}" if not deal.price.startswith('$') else deal.price
         discount_text = f" ({deal.discount_percentage} off)" if deal.discount_percentage else ""
+        promo_text = f" Code: {deal.promo_code}" if deal.promo_code else ""
 
         # Use short_link if available, otherwise use regular link
         link = deal.short_link if deal.short_link else deal.link
 
         # Format with blank line between products for better readability
-        return f"{emoji} {title}\n💰 {price_text}{discount_text}\n👉 {link}"
+        return f"{emoji} {title}\n💰 {price_text}{discount_text}{promo_text}\n👉 {link}"
 
     def _truncate_at_word(self, text: str, max_length: int) -> str:
         """Truncate text at word boundary, ensuring clean cutoff"""
@@ -791,15 +809,20 @@ class DealsPostManager:
                 title = self._truncate_at_word(deal.title, title_space_per_deal)
                 price_text = f"${deal.price}" if not deal.price.startswith('$') else deal.price
                 discount_text = f" ({deal.discount_percentage} off)" if deal.discount_percentage else ""
+                promo_text = f" Code: {deal.promo_code}" if deal.promo_code else ""
                 link = deal.short_link if deal.short_link else deal.link
-                truncated_deal_texts.append(f"{emoji} {title}\n💰 {price_text}{discount_text}\n👉 {link}")
+                truncated_deal_texts.append(f"{emoji} {title}\n💰 {price_text}{discount_text}{promo_text}\n👉 {link}")
 
             content = header + "\n\n".join(truncated_deal_texts) + footer
 
         return content, num_deals
 
-    def _extract_amazon_url_from_slickdeals(self, slickdeals_url: str) -> Optional[str]:
-        """Extract Amazon URL from Slickdeals page"""
+    def _extract_amazon_url_and_promo_from_slickdeals(self, slickdeals_url: str, current_promo_code: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+        """Extract Amazon URL and promo code from Slickdeals page
+
+        Returns:
+            Tuple of (amazon_url, promo_code)
+        """
         try:
             headers = {
                 'User-Agent': Config.USER_AGENT,
@@ -807,9 +830,28 @@ class DealsPostManager:
             }
             response = requests.get(slickdeals_url, headers=headers, timeout=10, allow_redirects=True)
             if response.status_code != 200:
-                return None
+                return None, current_promo_code
 
             soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Extract promo code from deal details if not already found in title
+            promo_code = current_promo_code
+            if not promo_code:
+                # Look for promo code in the entire page text
+                all_text = soup.get_text()
+                promo_patterns = [
+                    r'apply promo code\s+([A-Z0-9]+)',
+                    r'promo code[:\s]+([A-Z0-9]+)',
+                    r'coupon code[:\s]+([A-Z0-9]+)',
+                    r'code[:\s]+([A-Z0-9]{6,10})',
+                    r'use code[:\s]+([A-Z0-9]+)',
+                ]
+                for pattern in promo_patterns:
+                    match = re.search(pattern, all_text, re.IGNORECASE)
+                    if match:
+                        promo_code = match.group(1)
+                        logger.info(f"   Found promo code in deal details: {promo_code}")
+                        break
 
             # Look for Slickdeals click tracking links that go to Amazon
             slickdeals_click_links = soup.find_all('a', href=re.compile(r'slickdeals\.net/click'))
@@ -822,7 +864,7 @@ class DealsPostManager:
                         final_url = redirect_response.url
                         if 'amazon.com' in final_url or 'amzn.to' in final_url:
                             logger.info(f"   Found Amazon URL via redirect: {final_url[:80]}...")
-                            return final_url
+                            return final_url, promo_code
                     except:
                         continue
 
@@ -831,12 +873,12 @@ class DealsPostManager:
             if amazon_links:
                 amazon_url = amazon_links[0].get('href')
                 if amazon_url and ('amazon.com' in amazon_url or 'amzn.to' in amazon_url):
-                    return amazon_url
+                    return amazon_url, promo_code
 
-            return None
+            return None, promo_code
         except Exception as e:
             logger.warning(f"Error extracting Amazon URL from Slickdeals: {e}")
-            return None
+            return None, current_promo_code
 
     def _convert_to_affiliate_link(self, deal: Deal) -> Optional[Deal]:
         """Convert deal link to Amazon affiliate link if possible
@@ -851,12 +893,18 @@ class DealsPostManager:
         deal_copy = deepcopy(deal)
         amazon_url = deal_copy.link
 
-        # If it's a Slickdeals link, extract the Amazon URL first
+        # If it's a Slickdeals link, extract the Amazon URL and promo code
         if 'slickdeals.net' in deal_copy.link.lower():
-            logger.info(f"   Extracting Amazon URL from Slickdeals page...")
-            extracted_url = self._extract_amazon_url_from_slickdeals(deal_copy.link)
+            logger.info(f"   Extracting Amazon URL and promo code from Slickdeals page...")
+            extracted_url, promo_code = self._extract_amazon_url_and_promo_from_slickdeals(
+                deal_copy.link,
+                deal_copy.promo_code
+            )
             if extracted_url:
                 amazon_url = extracted_url
+                # Update promo code if found
+                if promo_code:
+                    deal_copy.promo_code = promo_code
             else:
                 logger.warning(f"   Could not extract Amazon URL from Slickdeals - skipping deal")
                 return None
@@ -867,6 +915,8 @@ class DealsPostManager:
             if asin:
                 affiliate_link = TextExtractor.create_affiliate_link(asin)
                 logger.info(f"   ✅ Converted to affiliate link: ASIN={asin}")
+                if deal_copy.promo_code:
+                    logger.info(f"   📋 Promo code: {deal_copy.promo_code}")
                 deal_copy.link = affiliate_link
                 deal_copy.short_link = affiliate_link
                 return deal_copy

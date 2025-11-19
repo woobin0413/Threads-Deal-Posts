@@ -124,13 +124,29 @@ def scrape_slickdeals_amazon(min_thumbs_up: int = 60, max_deals: int = 10):
                                 image_url = f"https:{image_url}" if image_url.startswith('//') else f"https://slickdeals.net{image_url}"
                             break
 
+                    # Extract promo code from title
+                    promo_code = None
+                    promo_patterns = [
+                        r'apply promo code\s+([A-Z0-9]+)',
+                        r'promo code[:\s]+([A-Z0-9]+)',
+                        r'coupon code[:\s]+([A-Z0-9]+)',
+                        r'code[:\s]+([A-Z0-9]{6,10})',
+                        r'use code[:\s]+([A-Z0-9]+)',
+                    ]
+                    for pattern in promo_patterns:
+                        match = re.search(pattern, title, re.IGNORECASE)
+                        if match:
+                            promo_code = match.group(1)
+                            break
+
                     deal = {
                         'title': title,
                         'price': price,
                         'original_price': original_price,
                         'link': link,
                         'thumbs_up': thumbs_up,
-                        'image_url': image_url
+                        'image_url': image_url,
+                        'promo_code': promo_code
                     }
 
                     all_deals.append(deal)
@@ -193,6 +209,7 @@ def format_deals_for_email(deals: list, max_deals: int = 10) -> tuple:
         thumbs = deal.get('thumbs_up', 0)
         link = deal.get('link', '')
         image = deal.get('image_url', '')
+        promo_code = deal.get('promo_code')
 
         html += f"""
         <div class="deal">
@@ -216,6 +233,9 @@ def format_deals_for_email(deals: list, max_deals: int = 10) -> tuple:
                 html += f' <span style="color: #dc3545; font-weight: bold;">({discount}% OFF)</span>'
             except:
                 pass
+
+        if promo_code:
+            html += f'<br><span style="background: #fef8e7; color: #333; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 14px; margin-top: 8px; display: inline-block;">📋 Code: {promo_code}</span>'
 
         html += f"""
             </div>
