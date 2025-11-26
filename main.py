@@ -635,8 +635,7 @@ class ThreadsAPI:
 
             if container_id:
                 media_container_ids.append(container_id)
-                # Small delay between creating media containers
-                time.sleep(0.5)
+                # No delay - containers expire quickly, must create carousel immediately
             else:
                 logger.warning(f"Failed to create media container for image {idx}")
 

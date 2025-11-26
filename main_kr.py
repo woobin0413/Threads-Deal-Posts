@@ -12,6 +12,7 @@ import random
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import aiohttp
 import requests
@@ -623,22 +624,42 @@ class ThreadsAPI:
             logger.warning(f"Carousel limited to 20 images, truncating from {len(media_urls)}")
             media_urls = media_urls[:20]
 
-        # Step 1: Create individual media containers for each image
+        # Step 1: Create individual media containers for each image IN PARALLEL
+        # CRITICAL: Containers expire in ~5-7 seconds, so we must create all simultaneously
         media_container_ids = []
-        for idx, media_url in enumerate(media_urls, 1):
-            if not media_url:
-                logger.warning(f"Skipping empty media URL at index {idx}")
-                continue
 
-            logger.info(f"Creating media container {idx}/{len(media_urls)}: {media_url}")
-            container_id = self.create_media_container(media_url=media_url, is_carousel_item=True)
+        # Filter out empty URLs
+        valid_media_urls = [(idx, url) for idx, url in enumerate(media_urls, 1) if url]
 
-            if container_id:
-                media_container_ids.append(container_id)
-                # Small delay between creating media containers
-                time.sleep(0.5)
-            else:
-                logger.warning(f"Failed to create media container for image {idx}")
+        if not valid_media_urls:
+            logger.error("No valid media URLs after filtering")
+            return None
+
+        # Create all containers in parallel using ThreadPoolExecutor
+        logger.info(f"Creating {len(valid_media_urls)} media containers in parallel...")
+        with ThreadPoolExecutor(max_workers=len(valid_media_urls)) as executor:
+            # Submit all container creation tasks simultaneously
+            future_to_idx = {
+                executor.submit(self.create_media_container, media_url=url, is_carousel_item=True): (idx, url)
+                for idx, url in valid_media_urls
+            }
+
+            # Collect results as they complete (preserve order)
+            results = [None] * len(valid_media_urls)
+            for future in as_completed(future_to_idx):
+                idx, url = future_to_idx[future]
+                try:
+                    container_id = future.result()
+                    if container_id:
+                        results[idx - 1] = container_id
+                        logger.info(f"✓ Created container {idx}/{len(valid_media_urls)}: {container_id}")
+                    else:
+                        logger.warning(f"✗ Failed to create container {idx}: {url}")
+                except Exception as e:
+                    logger.error(f"✗ Exception creating container {idx}: {e}")
+
+            # Filter out None values and preserve order
+            media_container_ids = [cid for cid in results if cid]
 
         if not media_container_ids:
             logger.error("No media containers created successfully")
@@ -882,19 +903,34 @@ class DealsPostManager:
 
         max_length = 500
 
-        # First try with specified number of deals
-        deal_texts = [
-            self._format_deal_text(deal, i)
-            for i, deal in enumerate(deals[:num_deals], 1)
-        ]
-        content = header + "\n".join(deal_texts) + footer
+        # Try to fit as many deals as possible, starting from num_deals and going up
+        best_content = None
+        best_count = 0
 
-        # If still too long, try reducing to 2 deals (only if we started with 3)
-        if len(content) > max_length and num_deals == 3:
-            logger.warning(f"Content with 3 deals is {len(content)} chars (max 500). Reducing to 2 deals...")
-            return self.create_post_content(deals, num_deals=2)
+        # Start with requested num, try up to all available deals (cap at 20)
+        for try_count in range(num_deals, min(len(deals) + 1, 20)):
+            deal_texts = [
+                self._format_deal_text(deal, i)
+                for i, deal in enumerate(deals[:try_count], 1)
+            ]
+            content = header + "\n".join(deal_texts) + footer
 
-        # If still too long, truncate titles proportionally at word boundaries
+            if len(content) <= max_length:
+                # This fits! Save it and try adding more
+                best_content = content
+                best_count = try_count
+                logger.info(f"✓ {try_count} deals fit ({len(content)} chars)")
+            else:
+                # Too long, stop trying to add more deals
+                logger.info(f"✗ {try_count} deals too long ({len(content)} chars), stopping at {best_count}")
+                break
+
+        # If we found content that fits, return it
+        if best_content:
+            return best_content, best_count
+
+        # If even num_deals doesn't fit, truncate titles to make it fit
+        logger.warning(f"Even {num_deals} deals don't fit, truncating titles...")
         if len(content) > max_length:
             available_space = max_length - len(header) - len(footer) - (num_deals * 2)  # account for \n between deals
             # Calculate space per deal
@@ -1102,19 +1138,15 @@ class DealsPostManager:
         post_content, actual_deals_count = self.create_post_content(top_deals)
         logger.info(f"Post content ({len(post_content)} chars, {actual_deals_count} deals):\n{post_content}")
 
-        # Collect image URLs only from the deals that were actually included in the post
-        media_urls = [deal.image_url for deal in top_deals[:actual_deals_count] if deal.image_url]
-        if media_urls:
-            logger.info(f"Found {len(media_urls)} images for carousel post (matching {actual_deals_count} deals)")
-        else:
-            logger.info("No images found, posting text-only")
+        # Skip images - post text only to avoid carousel expiration issues
+        logger.info("Posting text-only (no images) to avoid carousel container expiration issues")
 
         # Post to Threads
         if self.test_mode:
             logger.info("TEST MODE: Skipping actual posting to Threads")
             success = True
         else:
-            success = self.threads_api.post_to_threads(post_content, media_urls=media_urls if media_urls else None)
+            success = self.threads_api.post_to_threads(post_content, media_urls=None)
 
         if success:
             logger.info("Successfully posted deals to Threads!")
