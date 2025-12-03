@@ -9,6 +9,7 @@ import logging
 import re
 import time
 import random
+import json
 from datetime import datetime
 from typing import List, Dict, Optional
 from dataclasses import dataclass
@@ -27,6 +28,8 @@ class Config:
     """Application configuration constants"""
     # API Configuration
     THREADS_API_BASE = "https://graph.threads.net/v1.0"
+    GEMINI_API_KEY = "AIzaSyCVDOd-F17V9CFE7AEPMhtGUR7aRMTI5bs"
+    GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
     # Deal Configuration
     TOP_DEALS_COUNT = 3
@@ -753,6 +756,47 @@ class DealsPostManager:
     def __init__(self, test_mode: bool = False):
         self.threads_api = ThreadsAPI() if not test_mode else None
         self.test_mode = test_mode
+        self.posted_deals_file = 'posted_deals_kr.json'
+
+    def _load_posted_deals(self) -> set:
+        """Load previously posted deal ASINs from JSON file"""
+        try:
+            if os.path.exists(self.posted_deals_file):
+                with open(self.posted_deals_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    posted_asins = set(data.get('posted_asins', []))
+                    logger.info(f"Loaded {len(posted_asins)} previously posted deals")
+                    return posted_asins
+        except Exception as e:
+            logger.warning(f"Failed to load posted deals: {e}")
+        return set()
+
+    def _save_posted_deals(self, asins: list):
+        """Save posted deal ASINs to JSON file (keep last 100)"""
+        try:
+            # Load existing
+            existing_asins = list(self._load_posted_deals())
+
+            # Add new ASINs
+            existing_asins.extend(asins)
+
+            # Keep only last 100
+            unique_asins = list(dict.fromkeys(existing_asins))[-100:]
+
+            # Save
+            with open(self.posted_deals_file, 'w', encoding='utf-8') as f:
+                json.dump({'posted_asins': unique_asins}, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"Saved {len(asins)} new deals to posted history (total: {len(unique_asins)})")
+        except Exception as e:
+            logger.error(f"Failed to save posted deals: {e}")
+
+    def _get_deal_asin(self, deal: Deal) -> Optional[str]:
+        """Extract ASIN from deal link"""
+        from main_kr import TextExtractor
+        if 'amazon.com' in deal.link.lower():
+            return TextExtractor.extract_asin_from_url(deal.link)
+        return None
 
     def _translate_and_describe_product(self, title: str) -> str:
         """Translate product title to Korean and add persuasive description"""
@@ -823,12 +867,192 @@ class DealsPostManager:
 
         return korean_title, description
 
+    def _generate_ai_product_description(self, product_title: str) -> str:
+        """Generate Korean product description with purchase motivation using Gemini API"""
+        try:
+            prompt = f"""영어 제품명: {product_title}
+
+이 제품을 한국어로 설명하면서 왜 사면 좋은지 간단하게 써줘.
+조건:
+- 최대 30자 이내
+- 제품이 무엇인지 + 왜 필요한지 함께 설명
+- 구매욕구를 자극하는 실용적인 이유
+- 정제된 자연스러운 한국어 (과장 X)
+- **욕설/비속어 절대 사용 금지**: 개, 존나, 지랄, 씨발, 병신, 좆, 꺼져 등 일체 사용하지 말 것
+- 이모지 0-1개
+- 예시: "아이폰 실리콘 케이스 - 그립감 좋고 긁힘 방지", "메모리폼 방석 - 장시간 앉아도 허리 편함", "구글 기프트카드 - 게임/앱 구매할 때 유용"
+
+설명만 작성:"""
+
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            headers = {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': Config.GEMINI_API_KEY
+            }
+
+            response = requests.post(
+                Config.GEMINI_API_BASE,
+                headers=headers,
+                data=json.dumps(payload),
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                description = data['candidates'][0]['content']['parts'][0]['text'].strip()
+                description = description.strip('"\'')
+                logger.info(f"Generated AI product description for {product_title[:30]}...: {description}")
+                return description
+            else:
+                logger.warning(f"Gemini API error: {response.status_code}")
+                return ""
+        except Exception as e:
+            logger.warning(f"Failed to generate AI product description: {e}")
+            return ""
+
+    def _generate_ai_review(self, product_title: str) -> str:
+        """Generate authentic, heartfelt product review using Gemini API"""
+        try:
+            prompt = f"""제품: {product_title}
+
+이 제품을 실제로 구매해서 써본 사람이 진심으로 추천하는 한줄 후기를 써줘.
+조건:
+- 최대 15자 이내
+- 과장 없이 솔직하고 진심 어린 말투
+- 실제 사용 경험이 느껴지는 구체적 표현
+- 정제된 자연스러운 한국어
+- **욕설/비속어 절대 사용 금지**: 개, 존나, 지랄, 씨발, 병신, 좆, 꺼져 등 일체 사용하지 말 것
+- 이모지는 0-1개만 사용
+- 예시: "쓸수록 만족스러움", "가성비 괜찮음", "실용적임", "생각보다 유용함"
+
+후기만 작성:"""
+
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            headers = {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': Config.GEMINI_API_KEY
+            }
+
+            response = requests.post(
+                Config.GEMINI_API_BASE,
+                headers=headers,
+                data=json.dumps(payload),
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                review = data['candidates'][0]['content']['parts'][0]['text'].strip()
+                review = review.strip('"\'')
+                logger.info(f"Generated AI review for {product_title[:30]}...: {review}")
+                return review
+            else:
+                logger.warning(f"Gemini API error: {response.status_code}")
+                return ""
+        except Exception as e:
+            logger.warning(f"Failed to generate AI review: {e}")
+            return ""
+
+    def _generate_ai_footer(self, deals: List[Deal]) -> str:
+        """Generate sincere, persuasive footer using Gemini API"""
+        try:
+            deal_titles = ", ".join([deal.title[:30] for deal in deals[:3]])
+            prompt = f"""오늘의 딜 제품들: {deal_titles}
+
+이 딜들을 소개하는 포스트의 마무리 멘트를 작성해줘.
+조건:
+- 최대 50자 이내 (2줄)
+- 진심 어린, 친근한 말투
+- 실제로 제품을 써본 사람이 추천하는 느낌
+- 과장 없이 솔직하게
+- 정제된 자연스러운 한국어
+- **욕설/비속어 절대 사용 금지**: 개, 존나, 지랄, 씨발, 병신, 좆, 꺼져 등 일체 사용하지 말 것
+- 댓글 유도 자연스럽게 포함
+- 이모지는 1개만 사용
+- 예시: "이 가격이면 진심 괜찮은 거 같음\n궁금한 거 있으면 댓글로 물어봐", "세일 끝나기 전에 보면 좋을 듯\n다른 추천 필요하면 말해줘"
+
+멘트만 작성:"""
+
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ]
+            }
+
+            headers = {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': Config.GEMINI_API_KEY
+            }
+
+            response = requests.post(
+                Config.GEMINI_API_BASE,
+                headers=headers,
+                data=json.dumps(payload),
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                footer = data['candidates'][0]['content']['parts'][0]['text'].strip()
+                footer = footer.strip('"\'')
+                logger.info(f"Generated AI footer: {footer}")
+                return "\n" + footer
+            else:
+                logger.warning(f"Gemini API error for footer: {response.status_code}")
+                return self._get_random_footer()
+        except Exception as e:
+            logger.warning(f"Failed to generate AI footer: {e}")
+            return self._get_random_footer()
+
+    def _get_random_footer(self) -> str:
+        """Get random footer as fallback"""
+        footer_options = [
+            "\n세일 타이밍 괜찮은 거 같음\n필요한 거 있으면 댓글로 알려줘",
+            "\n이 가격이면 나쁘지 않을 듯\n궁금한 거 물어봐",
+            "\n세일 끝나기 전에 체크해보면 좋을 것 같음\n추천 필요하면 말해줘",
+            "\n가격 괜찮아서 공유함\n다른 딜 궁금하면 댓글 남겨",
+            "\n세일 기간 확인하고 필요하면 서둘러\n질문 있으면 댓글로",
+            "\n가성비 괜찮아 보여서 올림\n다른 추천 원하면 말해",
+        ]
+        return random.choice(footer_options)
+
     def _format_deal_text(self, deal: Deal, index: int) -> str:
-        """Format a single deal for posting in Korean style"""
+        """Format a single deal for posting in Korean style with AI description and review"""
         emoji = Config.RANK_EMOJIS.get(index, f"{index}.")
 
-        # Translate title and get description
-        korean_title, description = self._translate_and_describe_product(deal.title)
+        # Generate AI product description (Korean name + why buy it)
+        ai_product_desc = self._generate_ai_product_description(deal.title)
+
+        # Generate AI review
+        ai_review = self._generate_ai_review(deal.title)
 
         # Format discount percentage
         discount_text = ""
@@ -836,7 +1060,7 @@ class DealsPostManager:
             # Extract number from discount string (e.g., "-63%" -> "63")
             discount_num = re.search(r'\d+', deal.discount_percentage)
             if discount_num:
-                discount_text = f"{discount_num.group()}% OFF "
+                discount_text = f"{discount_num.group()}% "
 
         # Format price
         price_text = ""
@@ -848,16 +1072,21 @@ class DealsPostManager:
         # Format promo code
         promo_text = ""
         if deal.promo_code:
-            promo_text = f"\n✅Code: {deal.promo_code}"
+            promo_text = f"\n✅코드: {deal.promo_code}"
 
-        # Add description if available
-        desc_text = f" {description}" if description else ""
+        # Use AI product description if available
+        product_name = ai_product_desc if ai_product_desc else deal.title
+
+        # Use AI review if available
+        review_text = ""
+        if ai_review:
+            review_text = f"\n💬{ai_review}"
 
         # Use short_link if available, otherwise use regular link
         link = deal.short_link if deal.short_link else deal.link
 
-        # Format: emoji + discount + title + description + price + promo + link
-        return f"{emoji}{discount_text}{korean_title}{desc_text}{price_text}{promo_text}\n{link}"
+        # Format: emoji + discount + product_name + review + price + promo + link
+        return f"{emoji}{discount_text}{product_name}{review_text}{price_text}{promo_text}\n{link}"
 
     def _truncate_at_word(self, text: str, max_length: int) -> str:
         """Truncate text at word boundary, ensuring clean cutoff"""
@@ -885,21 +1114,11 @@ class DealsPostManager:
         if num_deals is None:
             num_deals = Config.TOP_DEALS_COUNT
 
-        # Korean header with casual/young tone
+        # Korean header
         header = "🛍️아마존 세일\n"
 
-        # Persuasive Korean footer - random selection for variety
-        footer_options = [
-            "\n세일 언제 끝날지 모르니 필요하면 고민하지말고 사!⏰\n또 다른 필요한 아이템 있으면 댓글 달아줘!",
-            "\n이 가격 놓치면 후회함 ㅠㅠ 지금 바로 겟!\n필요한 거 있으면 댓글로 알려줘~",
-            "\n재고 떨어지기 전에 빨리 사! 이 가격 실화냐💰\n궁금한 거 있으면 물어봐!",
-            "\n타임세일이라 금방 끝남ㅜㅜ 망설이지 마!\n다른 딜 원하면 댓글 ㄱㄱ",
-            "\n이거 안 사면 바보 ㅋㅋ 가성비 미쳤음🔥\n추천 아이템 있으면 공유해줘!",
-            "\n세일 끝나기 전에 카트 담아! 진짜 개꿀템💯\n원하는 제품 댓글로 요청해!",
-            "\n가격 미쳤다... 이 정도면 무조건 득템!\n필요한 딜 있으면 말해줘~",
-            "\n놓치면 진짜 손해 ㅠ 지금 당장 클릭!✨\n다른 추천템 궁금하면 댓글 남겨!",
-        ]
-        footer = random.choice(footer_options)
+        # Generate AI footer based on deals
+        footer = self._generate_ai_footer(deals[:num_deals])
 
         max_length = 500
 
@@ -1129,9 +1348,43 @@ class DealsPostManager:
         top_deals = converted_deals
         logger.info(f"Successfully converted {len(top_deals)} deals to affiliate links")
 
+        # Filter out previously posted deals
+        posted_asins = self._load_posted_deals()
+        new_deals = []
+        skipped_deals = []
+
+        for deal in top_deals:
+            asin = TextExtractor.extract_asin_from_url(deal.link)
+            if asin and asin not in posted_asins:
+                new_deals.append(deal)
+            else:
+                skipped_deals.append(deal.title[:50])
+
+        if skipped_deals:
+            logger.info(f"Skipped {len(skipped_deals)} previously posted deals:")
+            for title in skipped_deals:
+                logger.info(f"  - {title}...")
+
+        # If we have fewer than 3 new deals, try to get more from remaining amazon_deals
+        if len(new_deals) < Config.TOP_DEALS_COUNT:
+            logger.info(f"Only {len(new_deals)} new deals, trying to find more...")
+            for deal in amazon_deals[Config.TOP_DEALS_COUNT:]:
+                if len(new_deals) >= Config.TOP_DEALS_COUNT:
+                    break
+
+                converted_deal = self._convert_to_affiliate_link(deal)
+                if converted_deal:
+                    asin = TextExtractor.extract_asin_from_url(converted_deal.link)
+                    if asin and asin not in posted_asins:
+                        new_deals.append(converted_deal)
+                        logger.info(f"  ✓ Added: {deal.title[:50]}...")
+
+        top_deals = new_deals
+        logger.info(f"Final selection: {len(top_deals)} new deals to post")
+
         # If no valid deals with ASINs found, don't post
         if not top_deals:
-            logger.warning("No deals with valid Amazon ASINs found - skipping post")
+            logger.warning("No new deals found - all deals were already posted")
             return
 
         # Create post content and get actual number of deals used
@@ -1150,6 +1403,16 @@ class DealsPostManager:
 
         if success:
             logger.info("Successfully posted deals to Threads!")
+
+            # Save posted ASINs to prevent duplicates
+            posted_asins_list = []
+            for deal in top_deals[:actual_deals_count]:
+                asin = TextExtractor.extract_asin_from_url(deal.link)
+                if asin:
+                    posted_asins_list.append(asin)
+
+            if posted_asins_list:
+                self._save_posted_deals(posted_asins_list)
         else:
             logger.error("Failed to post deals to Threads")
 
@@ -1178,8 +1441,8 @@ def main() -> int:
         return 1
 
     try:
-        # Determine if in test mode
-        test_mode = os.getenv('TEST_MODE', 'false').lower() == 'true'
+        # Set to True for testing (no actual posting), False for real posting
+        test_mode = False  # Changed to False - will post to Threads
 
         # Create manager and run the posting process
         manager = DealsPostManager(test_mode=test_mode)
