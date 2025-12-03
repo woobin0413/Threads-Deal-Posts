@@ -28,7 +28,7 @@ class Config:
     """Application configuration constants"""
     # API Configuration
     THREADS_API_BASE = "https://graph.threads.net/v1.0"
-    GEMINI_API_KEY = "AIzaSyCVDOd-F17V9CFE7AEPMhtGUR7aRMTI5bs"
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')  # Load from .env for security
     GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
     # Deal Configuration
@@ -1442,7 +1442,7 @@ def main() -> int:
 
     try:
         # Set to True for testing (no actual posting), False for real posting
-        test_mode = False  # Changed to False - will post to Threads
+        test_mode = False  # Set to False to actually post to Threads
 
         # Create manager and run the posting process
         manager = DealsPostManager(test_mode=test_mode)
